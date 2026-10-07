@@ -196,3 +196,8 @@ main { grid-area: main; overflow-y: auto; padding: 0 18px 30px; position: relati
 #tags .dot { cursor: pointer; width: 12px; height: 12px; }
 #tags .dot:hover { box-shadow: 0 0 0 3px var(--accent-soft); }
 .status .warn { margin-top: 8px; padding: 6px 8px; border-radius: 8px; background: #d9534f22; color: #e0716d; font-size: 11.5px; }
+
+#results.busy { opacity: .45; transition: opacity .15s; pointer-events: none; }
+.spin { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--accent-soft); border-top-color: var(--accent);
+  border-radius: 50%; animation: spin .7s linear infinite; vertical-align: -1px; margin-right: 4px; }
+@keyframes spin { to { transform: rotate(360deg); } }

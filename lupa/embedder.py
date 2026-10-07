@@ -11,8 +11,8 @@ warnings.filterwarnings("ignore")
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
 # Cap how much unified memory PyTorch may hold on the GPU (16 GB Mac shared with everything else).
-os.environ.setdefault("PYTORCH_MPS_HIGH_WATERMARK_RATIO", "0.5")
-os.environ.setdefault("PYTORCH_MPS_LOW_WATERMARK_RATIO", "0.4")  # must be <= high ratio
+os.environ.setdefault("PYTORCH_MPS_HIGH_WATERMARK_RATIO", "0.45")
+os.environ.setdefault("PYTORCH_MPS_LOW_WATERMARK_RATIO", "0.35")  # must be <= high ratio
 
 MODEL_ID = "google/embeddinggemma-2"
 
@@ -28,8 +28,9 @@ class Embedder:
         if not vision:
             cfg["vision_config"] = None
         dev = device or ("mps" if torch.backends.mps.is_available() else "cpu")
-        # bf16 on the GPU; plain fp32 on CPU (bf16 matmuls are slow there). Never fp16 (overflows).
-        dtype = torch.float32 if dev == "cpu" else torch.bfloat16
+        # bf16 everywhere: on Apple Silicon CPU it is as fast as fp32 (~50 ms/query), half the RAM,
+        # cosine 0.999 vs fp32. Never fp16 (activations overflow).
+        dtype = torch.bfloat16
         kw = dict(device=dev, config_kwargs=cfg or None, model_kwargs={"torch_dtype": dtype})
         try:  # use the local copy without touching the network
             self.model = SentenceTransformer(MODEL_ID, local_files_only=True, **kw)

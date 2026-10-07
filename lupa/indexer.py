@@ -415,8 +415,18 @@ def main():
         emb = Embedder()
         migrate_nfc(con, emb)
         embed_names(con, emb)  # local files become searchable before the slow NAS scan
-        if not a.no_crawl:
+        if not a.no_crawl and network:
+            # a NAS scan can take an hour of pure I/O — don't sit on GBs of model memory meanwhile
+            emb.free()
+            del emb
+            emb = None
+            import gc
+            gc.collect()
             crawl(con, network)  # also drops files of roots removed from config
+            status(con, phase="Ładowanie modelu")
+            emb = Embedder()
+        elif not a.no_crawl:
+            crawl(con, [])  # cleanup of roots removed from config
         if a.crawl_only:
             return
         embed_names(con, emb)

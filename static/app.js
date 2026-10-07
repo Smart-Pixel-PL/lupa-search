@@ -69,6 +69,11 @@ async function search(reset = true) {
   S.loading = true;
   const offset = reset ? 0 : S.items.length;
   $("#more").textContent = "Szukam…";
+  if (reset) {
+    const what = S.image ? "podobnych obrazów" : S.q ? `„${S.q}”` : "";
+    $("#count").innerHTML = `<span class="spin"></span> ${what ? "Szukam " + esc(what) + "…" : "Wczytuję…"}`;
+    $("#results").classList.add("busy");
+  }
   try {
     let r;
     const p = params({ offset, limit: 120 });
@@ -89,7 +94,7 @@ async function search(reset = true) {
   } catch (e) {
     if (id === S.reqId) { $("#more").textContent = ""; toast("Błąd: " + e.message, 4000); }
   } finally {
-    if (id === S.reqId) S.loading = false;
+    if (id === S.reqId) { S.loading = false; $("#results").classList.remove("busy"); }
   }
 }
 
@@ -369,6 +374,7 @@ async function loadCols() { S.cols = await api("/api/collections"); renderCols()
 let qTimer;
 $("#q").addEventListener("input", e => {
   S.q = e.target.value.trim();
+  $("#results").classList.add("busy");  // instant feedback while the debounce waits
   resetMode();
   if (S.q && S.sort !== "relevance") { /* keep user's sort */ }
   clearTimeout(qTimer);

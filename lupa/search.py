@@ -40,6 +40,7 @@ class VectorIndex:
         with self.lock:
             if full:
                 self.mat, self.fid, self.vtype, self.part = mat, fid, vt, pt
+                self.cache_n = -1
                 self.gen, self.last_full = gen, time.time()
             else:
                 self.mat = np.vstack([self.mat, mat])
@@ -48,26 +49,39 @@ class VectorIndex:
                 self.part = np.concatenate([self.part, pt])
             if len(ids):
                 self.max_id = int(ids[-1])
+            self._prepare()  # done here (background thread), not on the first query
+            self.cache_n = len(self.fid)
 
     def __len__(self):
         return len(self.fid)
 
+    def _prepare(self):
+        """Per-refresh caches so a query is one fp16 matmul plus O(n) vector ops (no per-query sort/convert)."""
+        import torch
+        order = np.argsort(self.fid, kind="stable")
+        fs = self.fid[order]
+        starts = np.flatnonzero(np.r_[True, fs[1:] != fs[:-1]]) if len(fs) else np.zeros(0, np.int64)
+        self.cache = {
+            "tmat": torch.from_numpy(self.mat if self.mat.flags.writeable else self.mat.copy()),
+            "order": order, "starts": starts, "ufid": fs[starts] if len(fs) else fs,
+            "masks": {t: self.vtype == t for t in (V_NAME, V_TEXT, V_VISUAL, V_AUDIO)},
+        }
+
     def score(self, q: np.ndarray, allowed: np.ndarray | None = None, exclude: int | None = None,
               name_weight=1.0, vtypes=None):
         """Return (file_ids, best_z, best_row) for every file, z-normalised per vector type."""
+        import torch
         with self.lock:
-            mat, fid, vt, part = self.mat, self.fid, self.vtype, self.part
+            if getattr(self, "cache_n", -1) != len(self.fid):
+                self._prepare()
+                self.cache_n = len(self.fid)
+            fid, vt, cache = self.fid, self.vtype, self.cache
         if not len(fid):
             return np.zeros(0, np.int64), np.zeros(0), np.zeros(0, np.int64)
-        q = q.astype(np.float32)
-        s = np.empty(len(fid), np.float32)
-        step = 200_000
-        for i in range(0, len(fid), step):
-            s[i:i + step] = mat[i:i + step].astype(np.float32) @ q
+        s = (cache["tmat"] @ torch.from_numpy(q.astype(np.float16))).float().numpy()
         z = np.full(len(fid), -9.0, np.float32)
         rng = np.random.default_rng(0)
-        for t in (V_NAME, V_TEXT, V_VISUAL, V_AUDIO):
-            m = vt == t
+        for t, m in cache["masks"].items():
             n = int(m.sum())
             if not n:
                 continue
@@ -86,12 +100,13 @@ class VectorIndex:
             z[~np.isin(fid, allowed)] = -9.0
         if exclude is not None:
             z[fid == exclude] = -9.0
-        order = np.lexsort((-z, fid))  # group by file, best first
-        f_sorted = fid[order]
-        first = np.ones(len(order), bool)
-        first[1:] = f_sorted[1:] != f_sorted[:-1]
-        best_rows = order[first]
-        return fid[best_rows], z[best_rows], best_rows
+        order, starts = cache["order"], cache["starts"]
+        zs = z[order]
+        best = np.maximum.reduceat(zs, starts)
+        counts = np.diff(np.r_[starts, len(zs)])
+        pos = np.where(zs == np.repeat(best, counts), np.arange(len(zs)), len(zs))
+        best_rows = order[np.minimum.reduceat(pos, starts)]
+        return cache["ufid"], best, best_rows
 
     def file_vector(self, file_id: int):
         with self.lock:

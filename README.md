@@ -122,6 +122,8 @@ A second tab that keeps your **local disk** clean, in layers from most to least 
 | Duplicates (byte-identical, BLAKE2 checksum) | check | only obvious copies; the best copy always stays |
 | Big, long-unused files · iPhone/iPad backups | careful | no |
 
+**Apps are uninstalled properly, not just trashed.** Normal and App Store apps go to the Trash together with their own `~/Library` data, matched by exact bundle ID. Adobe apps send you to Creative Cloud, and apps with their own uninstaller or with system components (privileged helpers, system extensions, launch daemons) send you to the vendor's uninstaller. Running apps, login items and background services are never listed as "unused".
+
 **Nothing is deleted by Lupa.** Selected items go to the **Trash via Finder**, so *Put Back* works. Only paths from the latest scan can be trashed, and every action is logged. A scan takes about 15–20 s. Lupa re-scans weekly, sends a macOS notification when free space drops below 15%, and can optionally move caches and logs to the Trash every week. On the author's MacBook (460 GB, 7% free), the first scan found about 52 GB to reclaim.
 
 ## How it works

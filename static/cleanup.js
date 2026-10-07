@@ -1,7 +1,7 @@
 "use strict";
 // Porządki — disk cleanup tab. Uses helpers from app.js: $, $$, esc, api, toast, fmtSize, fmtDate.
 
-const CL = { rep: null, sel: new Set(), open: new Set(["caches"]), poll: null };
+const CL = { rep: null, sel: new Set(), open: new Set(["caches"]), poll: null, expanded: new Set() };
 const RISK = { safe: ["Bezpieczne", "safe"], check: ["Sprawdź", "check"], careful: ["Uważaj", "careful"] };
 const HOME_RE = /^\/Users\/[^/]+/;
 const short = p => p.replace(HOME_RE, "~");
@@ -34,15 +34,31 @@ function itemVisual(i) {
   return `<span class="ic">${i.kind === "app" ? "🧩" : i.kind === "file" ? "📄" : "📁"}</span>`;
 }
 
+const canTrash = i => !i.keep && !(i.kind === "app" && i.method && i.method !== "trash");
+const UNINSTALL_BTN = { adobe: "Otwórz Creative Cloud", uninstaller: "Uruchom deinstalator", vendor: "Otwórz aplikację" };
+
+function appDetails(i) {
+  if (i.kind !== "app" || !i.method) return "";
+  const relBytes = (i.related || []).reduce((a, r) => a + r.size, 0);
+  if (i.method !== "trash")
+    return `<div class="cl-un"><span class="pill warn">⚠︎ wymaga deinstalatora</span>
+      <button class="cl-mini" data-a="uninstall">${UNINSTALL_BTN[i.method]}</button></div>`;
+  const open = CL.expanded?.has(i.path);
+  return `<div class="cl-un"><span class="pill ok">✓ pełne odinstalowanie</span>
+    aplikacja ${fmtSize(i.app_size)} + dane ${fmtSize(relBytes)} (${(i.related || []).length} folderów)
+    ${(i.related || []).length ? `<a class="cl-link" data-a="details">${open ? "ukryj" : "pokaż pliki"}</a>` : ""}</div>
+    ${open ? `<ul class="cl-rel">${i.related.map(r => `<li><span>${esc(short(r.path))}</span><b>${fmtSize(r.size)}</b></li>`).join("")}</ul>` : ""}`;
+}
+
 function itemRow(c, i) {
   const when = i.last_used ? `otwarte ${fmtDate(i.last_used)}` : i.mtime ? `zmienione ${fmtDate(i.mtime)}` : "";
   const conf = i.confidence === "high" ? "pewne dopasowanie" : i.confidence === "medium" ? "dopasowanie po nazwie" : "";
   return `<div class="cl-row ${i.keep ? "keep" : ""}" data-path="${esc(i.path)}">
-    <input type="checkbox" ${CL.sel.has(i.path) ? "checked" : ""} ${i.keep ? "disabled title='Ta kopia zostaje'" : ""}>
+    <input type="checkbox" ${CL.sel.has(i.path) ? "checked" : ""} ${i.keep ? "disabled title='Ta kopia zostaje'" : !canTrash(i) ? "disabled title='Odinstaluj deinstalatorem'" : ""}>
     <div class="cl-vis">${itemVisual(i)}</div>
     <div class="cl-txt"><div class="cl-name">${esc(i.name)}${i.keep ? ' <span class="pill keep">zostaje</span>' : ""}</div>
       <div class="cl-path" title="${esc(i.path)}">${esc(short(i.path))}</div>
-      ${i.note || conf ? `<div class="cl-n">${esc([i.note, conf].filter(Boolean).join(" · "))}</div>` : ""}</div>
+      ${i.note || conf ? `<div class="cl-n">${esc([i.note, conf].filter(Boolean).join(" · "))}</div>` : ""}${appDetails(i)}</div>
     <div class="cl-when">${esc(when)}</div>
     <div class="cl-size">${fmtSize(i.size)}</div>
     <div class="cl-tools"><button data-a="reveal" title="Pokaż w Finderze">🔍</button><button data-a="protect" title="Nigdy nie proponuj (chroń)">🛡</button></div>
@@ -53,7 +69,7 @@ function catHtml(c) {
   const [rl, rc] = RISK[c.risk];
   const selItems = c.items.filter(i => CL.sel.has(i.path));
   const selBytes = selItems.reduce((a, i) => a + i.size, 0);
-  const selectable = c.items.filter(i => !i.keep);
+  const selectable = c.items.filter(canTrash);
   const all = selectable.length && selectable.every(i => CL.sel.has(i.path));
   const open = CL.open.has(c.id);
   let rows = "";
@@ -113,7 +129,7 @@ $("#clCats").addEventListener("click", async e => {
   const c = CL.rep.categories.find(x => x.id === cat.dataset.cat);
   const row = e.target.closest(".cl-row");
   if (e.target.classList.contains("cl-all")) {
-    const sel = c.items.filter(i => !i.keep);
+    const sel = c.items.filter(canTrash);
     const on = e.target.checked;
     sel.forEach(i => on ? CL.sel.add(i.path) : CL.sel.delete(i.path));
     if (on && (c.risk !== "safe")) toast(`Zaznaczono całą kategorię „${c.title}” — przejrzyj listę przed usunięciem`, 3500);
@@ -123,6 +139,11 @@ $("#clCats").addEventListener("click", async e => {
     const p = row.dataset.path;
     const a = e.target.closest("[data-a]")?.dataset.a;
     if (a === "reveal") return api("/api/cleanup/reveal", { method: "POST", json: { path: p } });
+    if (a === "details") { CL.expanded = CL.expanded || new Set(); CL.expanded.has(p) ? CL.expanded.delete(p) : CL.expanded.add(p); return renderCleanup(); }
+    if (a === "uninstall") {
+      const r = await api("/api/cleanup/uninstaller", { method: "POST", json: { path: p } });
+      return toast(r.ok ? "Otwieram — odinstaluj tam aplikację, potem kliknij „Skanuj teraz”" : "Nie udało się: " + r.error, 5000);
+    }
     if (a === "protect") {
       if (!confirm(`Chronić „${short(p)}”? Lupa nie będzie go więcej proponować do usunięcia.`)) return;
       await api("/api/cleanup/protect", { method: "POST", json: { path: p, add: true } });
@@ -160,7 +181,9 @@ $("#clDo").addEventListener("click", async () => {
   const items = CL.rep.categories.flatMap(c => c.items).filter(i => CL.sel.has(i.path));
   const bytes = items.reduce((a, i) => a + i.size, 0);
   const risky = CL.rep.categories.filter(c => c.risk !== "safe" && c.items.some(i => CL.sel.has(i.path))).map(c => "• " + c.title);
+  const apps = items.filter(i => i.kind === "app");
   if (!confirm(`Przenieść ${items.length} elementów (${fmtSize(bytes)}) do Kosza?` +
+    (apps.length ? `\n\nOdinstalowanie ${apps.length} aplikacji: każda razem ze swoimi danymi z ~/Library. Aplikacje muszą być zamknięte.` : "") +
     (risky.length ? `\n\nZawiera kategorie do sprawdzenia:\n${risky.join("\n")}` : "") +
     `\n\nMożesz je przywrócić z Kosza. macOS może zapytać o zgodę na sterowanie Finderem.`)) return;
   $("#clDo").disabled = true; $("#clDo").textContent = "Przenoszę…";

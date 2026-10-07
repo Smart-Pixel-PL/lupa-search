@@ -510,6 +510,11 @@ def cleanup_trash(d: dict = Body(...)):
     return cleanup.trash([str(p) for p in d.get("paths", [])][:5000])
 
 
+@app.post("/api/cleanup/uninstaller")
+def cleanup_uninstaller(d: dict = Body(...)):
+    return cleanup.open_uninstaller(str(d.get("path", "")))
+
+
 @app.post("/api/cleanup/empty-trash")
 def cleanup_empty_trash():
     return cleanup.empty_trash()

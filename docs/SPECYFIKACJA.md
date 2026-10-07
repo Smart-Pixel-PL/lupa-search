@@ -1,6 +1,6 @@
 # Lupa — specyfikacja aplikacji
 
-> Wersja 0.2.0 (beta) · październik 2026 · © Smart Pixel · licencja MIT
+> Wersja 0.2.1 (beta) · październik 2026 · © Smart Pixel · licencja MIT
 
 ## 1. Czym jest Lupa
 
@@ -216,9 +216,24 @@ Zakładka **Porządki** pomaga utrzymać wolne miejsce na dysku systemowym (Maci
 | 👻 Resztki po odinstalowanych aplikacjach | sprawdź | nie |
 | ⬇️ Stare pliki w Pobranych (nieotwierane 90+ dni) | sprawdź | nie |
 | 👯 Duplikaty (identyczne co do bajtu, suma kontrolna BLAKE2) | sprawdź | tylko kopie w Pobranych/na Biurku lub z „(1)”, „kopia”; najlepsza kopia zawsze zostaje |
-| 💤 Nieużywane aplikacje (180+ dni) | sprawdź | nie |
+| 💤 Nieużywane aplikacje (180+ dni, pełne odinstalowanie) | sprawdź | nie |
 | 🐘 Duże, dawno nieużywane pliki (200+ MB, rok) | uważaj | nie |
 | 📱 Kopie zapasowe iPhone'a / iPada | uważaj | nie |
+
+### Odinstalowywanie aplikacji („Nieużywane aplikacje”)
+
+Lupa nie wyrzuca samego pliku `.app`. Dla każdej aplikacji rozpoznaje **właściwą metodę**:
+
+| Sytuacja | Metoda w Lupie |
+|---|---|
+| Zwykła aplikacja i aplikacje z App Store | **pełne odinstalowanie**: `.app` + jej dane z `~/Library` (Application Support, Caches, Containers, Preferences, Saved Application State, HTTPStorages, WebKit, Logs, LaunchAgents, Cookies) do Kosza; dopasowanie tylko po dokładnym identyfikatorze lub nazwie, nigdy wspólne foldery producenta |
+| Aplikacje Adobe | blokada Kosza, przycisk **Otwórz Creative Cloud** |
+| Aplikacja z własnym deinstalatorem | blokada Kosza, przycisk **Uruchom deinstalator** |
+| Aplikacja z komponentami systemowymi (rozszerzenia systemowe, pomocnicy z uprawnieniami, usługi `LaunchDaemons` należące do tej aplikacji) | blokada Kosza, wskazówka, by użyć deinstalatora producenta |
+
+Z listy „nieużywanych” wykluczane są aplikacje **uruchomione teraz**, **elementy logowania** i aplikacje startowane przez
+**LaunchAgents/LaunchDaemons**, bo działają w tle i nie są „otwierane”, a mimo to są używane. Otwartej aplikacji nie da się odinstalować:
+Lupa poprosi o jej zamknięcie.
 
 ### Bezpieczeństwo usuwania
 - Nic nie jest kasowane: elementy trafiają do **Kosza przez Findera** (działa „Odłóż”). Miejsce zwalnia się po opróżnieniu Kosza

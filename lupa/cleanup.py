@@ -351,26 +351,183 @@ def cat_leftovers(ids, names):
     return items
 
 
+def _app_info(app: str) -> dict:
+    try:
+        with open(os.path.join(app, "Contents", "Info.plist"), "rb") as f:
+            info = plistlib.load(f)
+    except Exception:
+        info = {}
+    return {"bid": (info.get("CFBundleIdentifier") or "").lower(),
+            "name": info.get("CFBundleName") or os.path.basename(app)[:-4]}
+
+
+def _system_parts(app: str, bid: str) -> list[str]:
+    """Privileged helpers / system extensions / launch daemons that belong to THIS app (not shared vendor
+    services like Microsoft AutoUpdate) and that a plain Trash move would leave behind."""
+    if os.path.isdir(os.path.join(app, "Contents", "_MASReceipt")):
+        return []  # App Store apps are sandboxed and cannot install system components
+    parts = []
+    for sub in ("Contents/Library/SystemExtensions", "Contents/Library/LaunchServices"):
+        d = os.path.join(app, sub)
+        if os.path.isdir(d) and os.listdir(d):
+            parts.append(sub.split("/")[-1])
+    for d in ("/Library/LaunchDaemons", "/Library/LaunchAgents", "/Library/PrivilegedHelperTools"):
+        try:
+            for n in os.listdir(d):
+                if bid and n.lower().startswith(bid):
+                    parts.append(os.path.basename(d))
+                    continue
+                if n.endswith(".plist"):
+                    try:
+                        with open(os.path.join(d, n), "rb") as f:
+                            pl = plistlib.load(f)
+                        args = " ".join(map(str, pl.get("ProgramArguments") or [pl.get("Program", "")]))
+                        if app in args:
+                            parts.append(os.path.basename(d))
+                    except Exception:
+                        pass
+        except OSError:
+            pass
+    return sorted(set(parts))
+
+
+def _uninstaller(app: str, name: str):
+    """A vendor uninstaller next to the app (in its own folder) or inside the bundle."""
+    parent = os.path.dirname(app)
+    places = [os.path.join(app, "Contents", "Resources"), os.path.join(app, "Contents", "SharedSupport")]
+    if parent != "/Applications":  # e.g. /Applications/Foo/Uninstall Foo.app — never /Applications itself
+        places.append(parent)
+    key = _norm(name)[:5]
+    for d in places:
+        try:
+            for n in os.listdir(d):
+                ln = n.lower()
+                if n.endswith(".app") and ("uninstall" in ln or "deinstal" in ln) and (d != parent or key in _norm(n)):
+                    return os.path.join(d, n)
+        except OSError:
+            pass
+    return None
+
+
+def related_files(app: str, bid: str, name: str):
+    """~/Library data that belongs only to this app (exact bundle id or exact app name — never shared vendor folders)."""
+    if not bid:
+        return []
+    n = _norm(name)
+    out = []
+    checks = {
+        "Application Support": lambda x: x.lower() == bid or _norm(x) == n,
+        "Caches": lambda x: x.lower() in (bid, bid + ".shipit") or _norm(x) == n,
+        "Preferences": lambda x: x.lower().startswith(bid) and x.endswith(".plist"),
+        "Saved Application State": lambda x: x.lower() == bid + ".savedstate",
+        "HTTPStorages": lambda x: x.lower().startswith(bid),
+        "WebKit": lambda x: x.lower() == bid,
+        "Logs": lambda x: x.lower() == bid or _norm(x) == n,
+        "LaunchAgents": lambda x: x.lower().startswith(bid) and x.endswith(".plist"),
+        "Application Scripts": lambda x: x.lower() == bid,
+        "Cookies": lambda x: x.lower().startswith(bid),
+    }
+    for sub, test in checks.items():
+        d = os.path.join(LIB, sub)
+        try:
+            for x in os.listdir(d):
+                if test(x):
+                    out.append(os.path.join(d, x))
+        except OSError:
+            pass
+    d = os.path.join(LIB, "Containers")
+    try:
+        for x in os.listdir(d):
+            p = os.path.join(d, x)
+            key = x.lower()
+            try:
+                with open(os.path.join(p, ".com.apple.containermanager.metadata.plist"), "rb") as f:
+                    key = (plistlib.load(f).get("MCMMetadataIdentifier") or x).lower()
+            except Exception:
+                pass
+            if key == bid or key.startswith(bid + "."):
+                out.append(p)
+    except OSError:
+        pass
+    return [p for p in out if not _guard(p)]
+
+
+def _auto_started() -> set[str]:
+    """Bundle ids / app paths that run without being 'opened': running now, login items, launch agents."""
+    out = set(_running_bundle_ids())
+    for d in (os.path.join(LIB, "LaunchAgents"), "/Library/LaunchAgents", "/Library/LaunchDaemons"):
+        try:
+            for n in os.listdir(d):
+                try:
+                    with open(os.path.join(d, n), "rb") as f:
+                        pl = plistlib.load(f)
+                except Exception:
+                    continue
+                args = pl.get("ProgramArguments") or [pl.get("Program", "")]
+                out.add(n.removesuffix(".plist").lower())
+                for a in args:
+                    m = re.search(r"(/Applications/[^/]+\.app)", str(a))
+                    if m:
+                        out.add(m.group(1))
+        except OSError:
+            pass
+    return out
+
+
+def _login_item_names():
+    r = subprocess.run(["osascript", "-e", 'tell application "System Events" to get the name of every login item'],
+                       capture_output=True, text=True, timeout=10)
+    return [x.strip() for x in r.stdout.split(",") if x.strip()] if r.returncode == 0 else []
+
+
 def cat_unused_apps(ids):
     apps = sorted({a for a in ids.values() if a.startswith("/Applications/") and a.count(".app") == 1})
+    auto = _auto_started()
+    logins = [_norm(n) for n in _login_item_names() if len(_norm(n)) >= 4]
+
+    def is_login(a):  # "DisplayPilot" (login item) ↔ "Display Pilot 2.app"
+        an = _norm(os.path.basename(a)[:-4])
+        return any(an.startswith(ln) or ln.startswith(an) for ln in logins)
+    apps = [a for a in apps if a not in auto and _app_info(a)["bid"] not in auto and not is_login(a)]
     used = _last_used(apps)
     limit = time.time() - CC["unused_app_days"] * 86400
     old = []
     for a in apps:
-        try:
-            with open(os.path.join(a, "Contents", "Info.plist"), "rb") as f:
-                bid = (plistlib.load(f).get("CFBundleIdentifier") or "").lower()
-        except Exception:
-            bid = ""
-        if bid.startswith("com.apple.") or _guard(a):
+        info = _app_info(a)
+        if info["bid"].startswith("com.apple.") or _guard(a) or "uninstall" in a.lower():
             continue
         lu = used.get(a)
         added = os.stat(a).st_mtime
         if (lu and lu < limit) or (not lu and added < limit):
-            old.append((a, lu))
-    sizes = _sizes([a for a, _ in old])
-    return [_item(a, sizes[a], "app", app=a, last_used=lu, preselect=False,
-                  note="macOS nie ma danych o ostatnim użyciu" if not lu else "") for a, lu in old if sizes[a] > 50 * 1024 ** 2]
+            old.append((a, lu, info))
+    sizes = _sizes([a for a, _, _ in old])
+    out = []
+    for a, lu, info in old:
+        if sizes[a] <= 50 * 1024 ** 2:
+            continue
+        bid, name = info["bid"], info["name"]
+        rel = related_files(a, bid, name)
+        rel_sizes = _sizes(rel)
+        related = [{"path": p, "size": rel_sizes.get(p, 0)} for p in rel]
+        sysparts = _system_parts(a, bid)
+        unin = _uninstaller(a, name)
+        if bid.startswith("com.adobe."):
+            method, how = "adobe", "Odinstaluj przez Adobe Creative Cloud (Aplikacje → ⋯ → Odinstaluj)."
+        elif unin:
+            method, how = "uninstaller", f"Ma własny deinstalator: {os.path.basename(unin)}."
+        elif sysparts:
+            method, how = "vendor", ("Instaluje komponenty systemowe (" + ", ".join(sysparts) +
+                                     "). Użyj deinstalatora producenta lub opcji „Odinstaluj” w samej aplikacji.")
+        else:
+            mas = os.path.isdir(os.path.join(a, "Contents", "_MASReceipt"))
+            method = "trash"
+            how = ("Aplikacja z App Store — " if mas else "") + \
+                  f"odinstalowanie = aplikacja + {len(related)} powiązanych folderów z ~/Library do Kosza."
+        total = sizes[a] + sum(r["size"] for r in related)
+        note = how if lu else "macOS nie ma danych o ostatnim użyciu. " + how
+        out.append(_item(a, total, "app", app=a, last_used=lu, preselect=False, note=note, method=method,
+                         app_size=sizes[a], related=related, uninstaller=unin, bid=bid))
+    return out
 
 
 def _local_index_rows(sql, args=()):
@@ -597,7 +754,13 @@ def _candidates():
         rep = json.loads(REPORT.read_text())
     except Exception:
         return {}
-    return {i["path"]: (c["id"], i) for c in rep["categories"] for i in c["items"]}
+    out = {}
+    for c in rep["categories"]:
+        for i in c["items"]:
+            out[i["path"]] = (c["id"], i)
+            for r in i.get("related", []):
+                out.setdefault(r["path"], (c["id"], {**r, "parent": i["path"]}))
+    return out
 
 
 def _as(s: str) -> str:
@@ -608,7 +771,22 @@ def trash(paths, source="user"):
     """Move scan candidates to the Trash via Finder (keeps "Put Back"). Returns per-path result."""
     cands = _candidates()
     ok_paths, results = [], {}
+    running = _running_bundle_ids()
+    expanded = []
     for p in paths:
+        it = cands.get(p, (None, {}))[1]
+        if it.get("kind") == "app":
+            if it.get("method") != "trash":
+                results[p] = "tę aplikację odinstaluj jej deinstalatorem (patrz opis)"
+                continue
+            if it.get("bid") in running:
+                results[p] = "aplikacja jest otwarta — zamknij ją (⌘Q) i spróbuj ponownie"
+                continue
+            expanded.append(p)
+            expanded += [r["path"] for r in it.get("related", [])]  # full uninstall: app + its ~/Library data
+        else:
+            expanded.append(p)
+    for p in expanded:
         if p not in cands:
             results[p] = "nie ma tego w ostatnim skanie"
             continue
@@ -636,7 +814,8 @@ def trash(paths, source="user"):
     with open(LOG, "a") as log:
         for p, r in results.items():
             if r == "ok":
-                size = cands[p][1]["size"]
+                it = cands[p][1]
+                size = it.get("app_size", it["size"]) if it.get("kind") == "app" else it["size"]
                 freed += size
                 log.write(json.dumps({"t": time.time(), "path": p, "size": size, "category": cands[p][0],
                                       "by": source}, ensure_ascii=False) + "\n")
@@ -645,12 +824,29 @@ def trash(paths, source="user"):
         rep = json.loads(REPORT.read_text())
         for c in rep["categories"]:
             c["items"] = [i for i in c["items"] if results.get(i["path"]) != "ok"]
+            for i in c["items"]:
+                if i.get("related"):
+                    i["related"] = [r for r in i["related"] if results.get(r["path"]) != "ok"]
             c["count"] = len(c["items"])
             c["total"] = sum(i["size"] for i in c["items"] if not i.get("keep"))
         REPORT.write_text(json.dumps(rep, ensure_ascii=False))
     except Exception:
         pass
     return {"results": results, "freed": freed}
+
+
+def open_uninstaller(path: str):
+    it = _candidates().get(path, (None, {}))[1]
+    if it.get("method") == "adobe":
+        r = subprocess.run(["open", "-b", "com.adobe.acc.AdobeCreativeCloud"], capture_output=True)
+        return {"ok": r.returncode == 0, "error": "Nie znaleziono Creative Cloud" if r.returncode else ""}
+    if it.get("method") == "uninstaller" and it.get("uninstaller") and os.path.isdir(it["uninstaller"]):
+        subprocess.run(["open", it["uninstaller"]])
+        return {"ok": True}
+    if it.get("method") == "vendor":
+        subprocess.run(["open", path])  # most such apps offer "Uninstall" in their own menu
+        return {"ok": True}
+    return {"ok": False, "error": "brak deinstalatora"}
 
 
 def empty_trash():

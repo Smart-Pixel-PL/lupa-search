@@ -74,7 +74,7 @@ Konfiguracja jest w pliku `lupa.toml` w folderze projektu (powstaje z [`lupa.exa
 
 ## Porządki
 
-Zakładka do utrzymania porządku na **dysku lokalnym**. Pliki systemowe macOS, pęk kluczy, Poczta, Wiadomości i iCloud Drive są nietykalne, a dyski sieciowe są pomijane. Każda pozycja ma poziom ryzyka (bezpieczne / sprawdź / uważaj). Lupa niczego nie kasuje sama: zaznaczone elementy trafiają do Kosza przez Findera. Skan uruchamia się co tydzień, a przy wolnym miejscu poniżej 15% przychodzi powiadomienie. Opcjonalnie Lupa może co tydzień sama przenosić do Kosza cache i logi. Szczegóły są w [specyfikacji](docs/SPECYFIKACJA.md#9-porządki--czyszczenie-dysku-lokalnego).
+Zakładka do utrzymania porządku na **dysku lokalnym**. Pliki systemowe macOS, pęk kluczy, Poczta, Wiadomości i iCloud Drive są nietykalne, a dyski sieciowe są pomijane. Nieużywane aplikacje są **prawidłowo odinstalowywane**: aplikacja trafia do Kosza razem ze swoimi danymi z `~/Library`. Aplikacje Adobe Lupa odsyła do Creative Cloud, a aplikacje z własnym deinstalatorem albo z komponentami systemowymi do deinstalatora producenta. Każda pozycja ma poziom ryzyka (bezpieczne / sprawdź / uważaj). Lupa niczego nie kasuje sama: zaznaczone elementy trafiają do Kosza przez Findera. Skan uruchamia się co tydzień, a przy wolnym miejscu poniżej 15% przychodzi powiadomienie. Opcjonalnie Lupa może co tydzień sama przenosić do Kosza cache i logi. Szczegóły są w [specyfikacji](docs/SPECYFIKACJA.md#9-porządki--czyszczenie-dysku-lokalnego).
 
 ## Technologia w skrócie
 

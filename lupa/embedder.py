@@ -11,8 +11,8 @@ warnings.filterwarnings("ignore")
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
 # Cap how much unified memory PyTorch may hold on the GPU (16 GB Mac shared with everything else).
-os.environ.setdefault("PYTORCH_MPS_HIGH_WATERMARK_RATIO", "0.35")
-os.environ.setdefault("PYTORCH_MPS_LOW_WATERMARK_RATIO", "0.25")  # must be <= high ratio
+os.environ.setdefault("PYTORCH_MPS_HIGH_WATERMARK_RATIO", "0.5")
+os.environ.setdefault("PYTORCH_MPS_LOW_WATERMARK_RATIO", "0.4")  # must be <= high ratio
 
 MODEL_ID = "google/embeddinggemma-2"
 
@@ -44,13 +44,21 @@ class Embedder:
         if ip is not None:
             ip.max_soft_tokens = ip.image_seq_length = proc.image_seq_length = int(n)
 
-    def _enc(self, items, **kw):
+    def _enc(self, items, batch_size=32, **kw):
         if not items:
             return np.zeros((0, DIM), np.float16)
-        with self.lock:
-            v = self.model.encode(items, truncate_dim=DIM, normalize_embeddings=True,
-                                  convert_to_numpy=True, show_progress_bar=False, **kw)
-        return v.astype(np.float16)
+        while True:
+            try:
+                with self.lock:
+                    v = self.model.encode(items, truncate_dim=DIM, normalize_embeddings=True, batch_size=batch_size,
+                                          convert_to_numpy=True, show_progress_bar=False, **kw)
+                return v.astype(np.float16)
+            except RuntimeError as e:
+                # GPU memory is shared with the whole Mac: back off instead of crashing the run
+                if "out of memory" not in str(e) or batch_size <= 1:
+                    raise
+                self.free()
+                batch_size = max(1, batch_size // 2)
 
     def free(self):
         import gc

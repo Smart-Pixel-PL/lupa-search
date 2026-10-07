@@ -21,6 +21,16 @@ CONTENT_KINDS = {"image", "raw", "design", "video", "audio", "pdf", "doc", "shee
                  "text", "web", "code", "font", "model3d"}
 STOP = False
 DENIED: list[str] = []
+PROTECTED: list[str] = []
+
+
+def _other_users_private(d: str) -> bool:
+    """Another account's home folders (e.g. /Users/someone/Desktop) are unreadable by design — not a problem."""
+    try:
+        st = os.stat(d)
+    except OSError:
+        return False
+    return st.st_uid != os.getuid() and not (st.st_mode & 0o004)
 
 
 def log(*a):
@@ -47,7 +57,9 @@ def _walk(top, scan_id, rows, con, counter):
             it = list(os.scandir(d))
             errors = 0
         except PermissionError:
-            DENIED.append(d)  # macOS privacy (TCC) or ACL — keep whatever the index already has
+            PROTECTED.append(d)  # never purge what we couldn't read
+            if not _other_users_private(d):
+                DENIED.append(d)  # macOS privacy (TCC): worth a warning in the UI
             continue
         except OSError:
             errors += 1
@@ -139,7 +151,7 @@ def crawl(con, roots=None, cleanup=True):
             continue
         if STOP or not root_online(root):
             continue
-        denied = tuple(d.rstrip("/") + "/" for d in DENIED)
+        denied = tuple(d.rstrip("/") + "/" for d in PROTECTED)
         gone = [r[0] for r in con.execute(
             "SELECT id, path FROM files WHERE root=? AND scan<?", (root, scan_id))
                 if not (denied and r[1].startswith(denied))]
@@ -212,7 +224,7 @@ def embed_names(con, emb):
         con.execute(f"UPDATE files SET thumb=0, snippet=NULL, error=NULL WHERE id IN ({q})", ids)
         folders = [folder_label(r["path"], r["root"]) for r in rows]
         texts = [f"{KIND_LABELS.get(r['kind'], '')} w folderze: {f}" for r, f in zip(rows, folders)]
-        vecs = emb.documents([os.path.splitext(r["name"])[0] for r in rows], texts, batch_size=128)
+        vecs = emb.documents([os.path.splitext(r["name"])[0] for r in rows], texts, batch_size=64)
         _put_vecs(con, [(r["id"], V_NAME, 0, v) for r, v in zip(rows, vecs)])
         con.executemany("INSERT INTO fts(rowid,name,folder,body) VALUES(?,?,?,'')",
                         [(r["id"], r["name"], f) for r, f in zip(rows, folders)])
@@ -411,8 +423,13 @@ def main():
         make_thumbs(con)
         embed_content(con, emb, limit=a.limit)
         meta_set(con, "last_index", time.time())
-    finally:
+    except Exception as e:
+        status(con, running=False, phase=f"Błąd: {type(e).__name__} — szczegóły w data/indexer.log", current="")
+        PID_FILE.unlink(missing_ok=True)
+        raise
+    else:
         status(con, running=False, phase="Gotowe" if not STOP else "Zatrzymano", current="")
+    finally:
         PID_FILE.unlink(missing_ok=True)
 
 

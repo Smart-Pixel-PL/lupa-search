@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lupa</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔎</text></svg>">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <header class="top">
+    <div class="brand" title="Lupa — lokalna wyszukiwarka">🔎<span>Lupa</span></div>
+    <div class="searchbox">
+      <svg viewBox="0 0 24 24" class="ico"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="q" type="search" autocomplete="off" spellcheck="false"
+             placeholder="Opisz czego szukasz… np. „zdjęcie szatni kontenerowej przy boisku”, „faktura za transport 2025”">
+      <span id="qinfo" class="qinfo"></span>
+      <button id="imgBtn" class="iconbtn" title="Szukaj po obrazie (lub przeciągnij / wklej zdjęcie)">🖼</button>
+      <input id="imgFile" type="file" accept="image/*" hidden>
+      <kbd>/</kbd>
+    </div>
+    <div class="tools">
+      <select id="sort" title="Sortowanie">
+        <option value="relevance">Trafność</option>
+        <option value="mtime">Data modyfikacji</option>
+        <option value="ctime">Data utworzenia</option>
+        <option value="name">Nazwa</option>
+        <option value="size">Rozmiar</option>
+        <option value="kind">Typ</option>
+      </select>
+      <button id="order" class="iconbtn" title="Kierunek sortowania">↓</button>
+      <input id="zoom" type="range" min="110" max="360" step="10" value="190" title="Wielkość miniatur">
+      <div class="seg" id="viewSeg">
+        <button data-v="grid" class="on" title="Siatka">▦</button>
+        <button data-v="list" title="Lista">☰</button>
+      </div>
+      <button id="fitBtn" class="iconbtn" title="Miniatury: wypełnij / dopasuj">⤢</button>
+    </div>
+  </header>
+
+  <aside class="side" id="side">
+    <section>
+      <h4>Typ pliku</h4>
+      <div id="kinds" class="chips"></div>
+    </section>
+    <section>
+      <h4>Kiedy</h4>
+      <div id="since" class="chips">
+        <button data-d="">Zawsze</button><button data-d="1">24 h</button><button data-d="7">7 dni</button>
+        <button data-d="30">30 dni</button><button data-d="365">Rok</button>
+      </div>
+    </section>
+    <section>
+      <h4>Gdzie</h4>
+      <div id="roots" class="list"></div>
+      <div id="folderFilter" class="folderfilter" hidden></div>
+    </section>
+    <section>
+      <h4>Tagi <button id="addTag" class="mini" title="Nowy tag">＋</button></h4>
+      <div id="tags" class="list"></div>
+    </section>
+    <section>
+      <h4>Kolekcje <button id="saveCol" class="mini" title="Zapisz bieżące wyszukiwanie jako kolekcję">＋</button></h4>
+      <div id="cols" class="list"></div>
+    </section>
+    <section class="status" id="status"></section>
+  </aside>
+
+  <main id="main">
+    <div class="bar" id="bar">
+      <span id="count"></span>
+      <span class="spacer"></span>
+      <span id="selbar" hidden>
+        <b id="selN"></b>
+        <button id="selTag">🏷 Taguj</button>
+        <button id="selFav">★ Ulubione</button>
+        <button id="selClear">✕</button>
+      </span>
+    </div>
+    <div id="results" class="grid"></div>
+    <div id="more" class="more"></div>
+    <div id="empty" class="empty" hidden></div>
+  </main>
+
+  <aside class="preview" id="preview" hidden>
+    <button class="close" id="pvClose" title="Zamknij (Esc)">✕</button>
+    <div class="pvmedia" id="pvMedia"></div>
+    <div class="pvbody">
+      <h2 id="pvName"></h2>
+      <div class="pvpath" id="pvPath" title="Kliknij, aby skopiować ścieżkę"></div>
+      <div class="pvactions">
+        <button id="pvOpen" class="primary">Otwórz <kbd>↵</kbd></button>
+        <button id="pvReveal">Pokaż w Finderze <kbd>⌘↵</kbd></button>
+        <button id="pvQL">Pełny ekran <kbd>Q</kbd></button>
+        <button id="pvSim">Podobne <kbd>S</kbd></button>
+        <button id="pvFolder">Ten folder</button>
+      </div>
+      <div class="pvtags" id="pvTags"></div>
+      <dl class="pvmeta" id="pvMeta"></dl>
+      <pre class="pvtext" id="pvText" hidden></pre>
+    </div>
+  </aside>
+</div>
+
+<div id="lightbox" class="lightbox" hidden>
+  <div class="lbmedia" id="lbMedia"></div>
+  <div class="lbbar"><span id="lbName"></span><span class="spacer"></span>
+    <span class="lbhint">← → poprzedni / następny · Enter otwórz · Esc zamknij</span></div>
+  <button class="lbnav prev" id="lbPrev">‹</button><button class="lbnav next" id="lbNext">›</button>
+</div>
+<div id="drop" class="drop" hidden><div>Upuść obraz, aby znaleźć podobne pliki</div></div>
+<div id="menu" class="menu" hidden></div>
+<div id="toast" class="toast" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>

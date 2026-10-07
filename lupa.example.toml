@@ -1,0 +1,61 @@
+# Lupa configuration. On first run this file is copied to `lupa.toml` (your personal, git-ignored copy).
+# Paths may start with "~". Restart Lupa (⌘Q, open again) after editing.
+
+# Folders to index. Add network drives too, e.g. "/Volumes/NAS".
+roots = ["~"]
+
+# Folder shortcuts shown under „Gdzie” (Where) in the sidebar.
+places = [
+  { name = "Pobrane", path = "~/Downloads", icon = "⬇️" },
+  { name = "Biurko", path = "~/Desktop", icon = "🖥️" },
+  { name = "Dokumenty", path = "~/Documents", icon = "📄" },
+  { name = "Obrazy", path = "~/Pictures", icon = "🖼️" },
+  { name = "iCloud Drive", path = "~/Library/Mobile Documents/com~apple~CloudDocs", icon = "☁️" },
+]
+
+# Local web UI port: http://localhost:7766
+port = 7766
+
+# Re-scan every N hours (0 = only manually).
+reindex_every_hours = 3
+
+# Image analysis detail (tokens per image): 70 = fastest, 140 = balanced, 280 = full quality (~2x slower than 140).
+image_tokens = 140
+
+# Vector size (768 / 512 / 256 / 128). 256 = good quality, 3x less space. Changing it requires deleting data/.
+dim = 256
+
+# Full paths skipped entirely (the Lupa project folder itself is always skipped).
+exclude_paths = []
+
+# Folder names skipped everywhere. (~/Library is always skipped except the include_paths below.)
+exclude_dirs = [
+  ".Trash", "node_modules", ".git", ".svn", ".hg", ".venv", "venv", "env",
+  "__pycache__", ".next", ".nuxt", ".cache", ".npm", ".yarn", ".pnpm-store", "Pods",
+  "DerivedData", ".gradle", ".idea", ".vscode", ".turbo", ".vercel", "site-packages",
+  "#recycle", "#snapshot", "@eaDir", ".SynologyWorkingDirectory", ".Spotlight-V100",
+  ".fseventsd", ".TemporaryItems", ".DocumentRevisions-V100", "$RECYCLE.BIN",
+  # build output / app caches
+  "dist", ".astro", ".output", ".svelte-kit", "Partitions", "Cache", "Cache_Data", "Code Cache",
+  "GPUCache", "Service Worker", "IndexedDB", "Local Storage", "Session Storage", "blob_storage",
+  "Crashpad", "logs",
+]
+
+# Indexed even though they live inside ~/Library.
+include_paths = [
+  "~/Library/Mobile Documents/com~apple~CloudDocs",
+]
+
+# macOS packages — treated as a single item (not entered).
+package_exts = [
+  ".app", ".photoslibrary", ".fcpbundle", ".logicx", ".band", ".xcodeproj", ".xcworkspace",
+  ".bundle", ".framework", ".plugin", ".kext", ".lrdata", ".imovielibrary", ".tvlibrary",
+  ".musiclibrary", ".rtfd", ".pages", ".numbers", ".key", ".sketch", ".scriv", ".dmgpart",
+  ".eaglepack", ".library", ".prproj-bundle", ".aep-bundle", ".fcpxmld", ".screenstudio",
+]
+
+# Extensions skipped completely.
+skip_exts = [
+  ".pyc", ".pyo", ".o", ".a", ".so", ".dylib", ".class", ".tmp", ".lock", ".swp",
+  ".ds_store", ".localized", ".icloud", ".part", ".crdownload", ".download",
+]

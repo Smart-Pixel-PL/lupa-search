@@ -1,0 +1,24 @@
+[project]
+name = "lupa"
+version = "0.1.0"
+description = "Local, private semantic file search for macOS powered by Google EmbeddingGemma 2"
+readme = "README.md"
+license = "MIT"
+authors = [{ name = "Smart Pixel" }]
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.142.2",
+    "numpy>=1.26.4",
+    "openpyxl>=3.1.5",
+    "pillow>=12.3.0",
+    "pillow-heif>=1.8.0",
+    "pymupdf>=1.28.2",
+    "python-docx>=1.2.0",
+    "python-multipart>=0.0.32",
+    "python-pptx>=1.0.2",
+    "sentence-transformers[audio,image,video]>=6.1",
+    "soundfile>=0.14.0",
+    "torch>=2.14.1",
+    "transformers>=5.19.0",
+    "uvicorn[standard]>=0.54.0",
+]

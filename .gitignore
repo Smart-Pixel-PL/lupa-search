@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[oc]
+*.egg-info
+.venv
+
+# Lupa runtime data (index, thumbnails, logs) and personal config
+data/
+lupa.toml
+
+# Build output
+build/
+macapp/Lupa.iconset/
+
+.DS_Store

@@ -59,3 +59,13 @@ skip_exts = [
   ".pyc", ".pyo", ".o", ".a", ".so", ".dylib", ".class", ".tmp", ".lock", ".swp",
   ".ds_store", ".localized", ".icloud", ".part", ".crdownload", ".download",
 ]
+
+# Porządki (disk cleanup tab) — local disk only, nothing is deleted without your click (items go to the Trash).
+[cleanup]
+every_days = 7            # automatic scan interval
+low_space_percent = 15    # macOS notification when free space drops below this
+big_file_mb = 200         # "big, long-unused files" threshold
+old_days = 365            # …and how long they must be untouched
+downloads_old_days = 90   # Downloads items not opened for this long
+unused_app_days = 180     # apps not opened for this long
+leftover_min_mb = 20      # ignore tiny leftovers of uninstalled apps

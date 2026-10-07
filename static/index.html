@@ -11,6 +11,10 @@
 <div id="app">
   <header class="top">
     <div class="brand" title="Lupa — lokalna wyszukiwarka">🔎<span>Lupa</span></div>
+    <nav class="tabs" id="tabs">
+      <button data-tab="search" class="on">Szukaj</button>
+      <button data-tab="clean">Porządki <i id="cleanBadge" hidden></i></button>
+    </nav>
     <div class="searchbox">
       <svg viewBox="0 0 24 24" class="ico"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
       <input id="q" type="search" autocomplete="off" spellcheck="false"
@@ -109,9 +113,37 @@
     <span class="lbhint">← → poprzedni / następny · Enter otwórz · Esc zamknij</span></div>
   <button class="lbnav prev" id="lbPrev">‹</button><button class="lbnav next" id="lbNext">›</button>
 </div>
+<section id="clean" class="clean" hidden>
+  <div class="cl-head">
+    <div class="cl-disk">
+      <div class="cl-disk-top"><b>Macintosh HD</b><span id="clDiskTxt"></span></div>
+      <div class="cl-bar"><i id="clUsed"></i><i id="clSel" class="sel"></i></div>
+      <div class="cl-legend"><span><i class="lg used"></i>zajęte</span><span><i class="lg sel"></i>zaznaczone do usunięcia</span><span><i class="lg free"></i>wolne</span></div>
+    </div>
+    <div class="cl-actions">
+      <div class="cl-big"><small>Do odzyskania</small><b id="clTotal">—</b></div>
+      <button id="clScan" class="cl-btn">↻ Skanuj teraz</button>
+      <div class="cl-meta" id="clMeta"></div>
+    </div>
+  </div>
+  <div class="cl-trash" id="clTrash"></div>
+  <div class="cl-cats" id="clCats"></div>
+  <div class="cl-foot">
+    <label class="cl-switch"><input type="checkbox" id="clAuto"> <span>Co tydzień automatycznie przenoś do Kosza cache i logi (kategorie „bezpieczne”)</span></label>
+    <div class="cl-note">Lupa niczego nie kasuje sama: pliki trafiają do Kosza i możesz je przywrócić (Kosz → „Odłóż”). Miejsce zwalnia się dopiero po opróżnieniu Kosza.
+    Pliki systemowe macOS nigdy nie są brane pod uwagę.</div>
+    <div class="cl-protected" id="clProtected"></div>
+  </div>
+  <div class="cl-bottom" id="clBottom" hidden>
+    <span id="clSelTxt"></span>
+    <button id="clDo" class="cl-btn primary">Przenieś do Kosza</button>
+  </div>
+</section>
+
 <div id="drop" class="drop" hidden><div>Upuść obraz, aby znaleźć podobne pliki</div></div>
 <div id="menu" class="menu" hidden></div>
 <div id="toast" class="toast" hidden></div>
 <script src="app.js"></script>
+<script src="cleanup.js"></script>
 </body>
 </html>

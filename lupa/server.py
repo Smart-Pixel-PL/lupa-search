@@ -13,7 +13,7 @@ from fastapi import Body, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from .common import (CFG, DATA, KIND_LABELS, PROJECT, V_VISUAL, connect, meta_get, root_online,
+from .common import (CFG, DATA, KIND_LABELS, PROJECT, V_VISUAL, connect, meta_get, meta_set, root_online,
                      thumb_path)
 from .search import REASONS, VectorIndex, keyword_hits
 
@@ -81,6 +81,8 @@ def _bg_loop():
             came_back = any(v and prev.get(r) is False for r, v in _online.items())
             every = CFG.get("reindex_every_hours", 3)
             last = float(meta_get(c, "last_index", "0") or 0)
+            if not _cleanup_busy.locked():  # weekly Porządki scan / low-space alert, off the main loop
+                threading.Thread(target=_cleanup_periodic, daemon=True).start()
             if came_back and not indexer_running():  # e.g. NAS mounted again
                 start_indexer()
             elif every and not indexer_running() and time.time() - max(last, last_try) > every * 3600:
@@ -305,6 +307,9 @@ def thumb(fid: int):
     tp = thumb_path(fid)
     if tp.exists():
         return FileResponse(tp, media_type="image/webp", headers={"Cache-Control": "max-age=86400"})
+    miss = tp.with_suffix(".none")  # failure marker as a file: the server never writes to the DB here
+    if miss.exists():
+        raise HTTPException(404)
     r = db().execute("SELECT path, kind, root, thumb FROM files WHERE id=?", (fid,)).fetchone()
     if not r or r["thumb"] == -1 or not _online.get(r["root"], True) or not os.path.exists(r["path"]):
         raise HTTPException(404)
@@ -320,10 +325,9 @@ def thumb(fid: int):
         except Exception:
             im = None
     if im is None:
-        connect().execute("UPDATE files SET thumb=-1 WHERE id=?", (fid,)).connection.commit()
+        miss.touch()
         raise HTTPException(404)
     save_thumb(im, tp)
-    connect().execute("UPDATE files SET thumb=1 WHERE id=?", (fid,)).connection.commit()
     return FileResponse(tp, media_type="image/webp", headers={"Cache-Control": "max-age=86400"})
 
 
@@ -468,6 +472,123 @@ def index_stop():
         except (OSError, ValueError):
             pass
     return {"ok": True}
+
+
+# Porządki (cleanup) --------------------------------------------------------
+from . import cleanup  # noqa: E402
+
+_cleanup_busy = threading.Lock()
+_cleanup_last = 0.0
+
+
+def _cleanup_periodic():
+    global _cleanup_last
+    if time.time() - _cleanup_last < 3600 or not _cleanup_busy.acquire(blocking=False):
+        return
+    try:
+        _cleanup_last = time.time()
+        cleanup.periodic()
+    except Exception as e:  # noqa: BLE001
+        print("cleanup periodic:", e, file=sys.stderr)
+    finally:
+        _cleanup_busy.release()
+
+
+@app.get("/api/cleanup")
+def cleanup_report():
+    return cleanup.report()
+
+
+@app.post("/api/cleanup/scan")
+def cleanup_scan():
+    threading.Thread(target=cleanup.scan, daemon=True).start()
+    return {"started": True}
+
+
+@app.post("/api/cleanup/trash")
+def cleanup_trash(d: dict = Body(...)):
+    return cleanup.trash([str(p) for p in d.get("paths", [])][:5000])
+
+
+@app.post("/api/cleanup/empty-trash")
+def cleanup_empty_trash():
+    return cleanup.empty_trash()
+
+
+@app.post("/api/cleanup/open-trash")
+def cleanup_open_trash():
+    subprocess.Popen(["open", os.path.expanduser("~/.Trash")])
+    return {"ok": True}
+
+
+@app.post("/api/cleanup/reveal")
+def cleanup_reveal(d: dict = Body(...)):
+    p = str(d.get("path", ""))
+    if p not in cleanup._candidates():
+        raise HTTPException(404)
+    subprocess.Popen(["open", "-R", p])
+    return {"ok": True}
+
+
+@app.post("/api/cleanup/protect")
+def cleanup_protect(d: dict = Body(...)):
+    cleanup.set_protect(str(d["path"]), bool(d.get("add", True)))
+    return {"ok": True}
+
+
+@app.post("/api/cleanup/settings")
+def cleanup_settings(d: dict = Body(...)):
+    c = connect()
+    if "auto_caches" in d:
+        meta_set(c, "cleanup_auto_caches", "1" if d["auto_caches"] else "0")
+    c.commit()
+    return {"ok": True}
+
+
+@app.get("/api/cleanup/icon")
+def cleanup_icon(path: str):
+    """App icon (via Quick Look) for an installed .app — only real app bundles are accepted."""
+    import hashlib
+    from .extract import quicklook
+    p = os.path.abspath(path)
+    if not (p.endswith(".app") and os.path.isdir(p) and p.startswith(
+            ("/Applications/", "/System/Applications/", "/System/Library/CoreServices/", os.path.expanduser("~/Applications/")))):
+        raise HTTPException(404)
+    dest = DATA / "thumbs" / "icons"
+    dest.mkdir(exist_ok=True)
+    f = dest / (hashlib.md5(p.encode()).hexdigest() + ".png")
+    miss = f.with_suffix(".none")
+    if miss.exists():
+        raise HTTPException(404)
+    if not f.exists():
+        im = _bundle_icon(p) or quicklook(p, 128, timeout=4)
+        if im is None:
+            miss.touch()  # don't retry a slow failure on every page load
+            raise HTTPException(404)
+        im.save(f)
+    return FileResponse(f, media_type="image/png", headers={"Cache-Control": "max-age=604800"})
+
+
+def _bundle_icon(app: str):
+    """Read the app's .icns straight from the bundle (fast); None if it only ships an asset catalog."""
+    import plistlib
+    from PIL import Image
+    try:
+        with open(os.path.join(app, "Contents", "Info.plist"), "rb") as fh:
+            info = plistlib.load(fh)
+        name = info.get("CFBundleIconFile") or info.get("CFBundleIconName") or "AppIcon"
+        res = os.path.join(app, "Contents", "Resources")
+        for cand in (name, name + ".icns"):
+            fp = os.path.join(res, cand)
+            if os.path.isfile(fp):
+                im = Image.open(fp)
+                im.load()
+                im = im.convert("RGBA")
+                im.thumbnail((128, 128))
+                return im
+    except Exception:
+        return None
+    return None
 
 
 app.mount("/", StaticFiles(directory=STATIC, html=True), name="static")

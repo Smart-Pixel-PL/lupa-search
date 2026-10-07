@@ -38,6 +38,7 @@ Wpisz *„zdjęcie drużyny na sztucznej murawie”*, *„faktura za transport 2
 - 🧲 **Szukanie obrazem:** przeciągnij lub wklej zdjęcie, żeby znaleźć podobne. Przycisk **„Podobne”** działa dla każdego pliku.
 - 🏷️ **Tagi i kolekcje:** kolorowe tagi (także dla wielu plików naraz), ulubione i zapisane wyszukiwania.
 - 🎛️ **Filtry i sortowanie:** typ, data, dysk, skróty folderów (Pobrane, Biurko, Dokumenty, iCloud Drive), tagi.
+- 🧹 **Porządki:** odzyskiwanie miejsca na dysku Maca. Lupa znajduje cache, logi, stare instalatory, resztki po odinstalowanych aplikacjach, identyczne duplikaty, nieużywane aplikacje i duże stare pliki, a zaznaczone przenosi do Kosza (zawsze da się je przywrócić).
 - 🗄️ **Obsługa NAS:** indeks i miniatury zostają lokalnie, więc przeglądanie działa nawet przy odłączonym dysku sieciowym.
 - 🍏 **Natywna aplikacja:** ikona w Docku, skrót **⌥⌘L**, autostart, tryb jasny i ciemny.
 - ⌨️ **Skróty:** `/` szukaj · strzałki · `Spacja` podgląd · `Q` pełny ekran · `Enter` otwórz · `⌘Enter` pokaż w Finderze · `S` podobne · `T` taguj · `F` ulubione.
@@ -70,6 +71,10 @@ Odinstalowanie: `./uninstall.sh`
 Otwórz **Lupę** z Launchpada albo naciśnij **⌥⌘L**. Pierwsze indeksowanie rusza samo: najpierw skan i nazwy (po kilku minutach wszystko da się znaleźć po nazwie), potem miniatury, a na końcu analiza treści, która przy dużych zbiorach trwa kilka godzin. Indeksowanie działa z niskim priorytetem i można je wstrzymać w lewym dolnym rogu.
 
 Konfiguracja jest w pliku `lupa.toml` w folderze projektu (powstaje z [`lupa.example.toml`](lupa.example.toml)). Ustawisz w nim foldery do indeksowania (np. dysk sieciowy `"/Volumes/NAS"`), skróty folderów, wykluczenia i jakość analizy obrazów.
+
+## Porządki
+
+Zakładka do utrzymania porządku na **dysku lokalnym**. Pliki systemowe macOS, pęk kluczy, Poczta, Wiadomości i iCloud Drive są nietykalne, a dyski sieciowe są pomijane. Każda pozycja ma poziom ryzyka (bezpieczne / sprawdź / uważaj). Lupa niczego nie kasuje sama: zaznaczone elementy trafiają do Kosza przez Findera. Skan uruchamia się co tydzień, a przy wolnym miejscu poniżej 15% przychodzi powiadomienie. Opcjonalnie Lupa może co tydzień sama przenosić do Kosza cache i logi. Szczegóły są w [specyfikacji](docs/SPECYFIKACJA.md#9-porządki--czyszczenie-dysku-lokalnego).
 
 ## Technologia w skrócie
 

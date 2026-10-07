@@ -238,6 +238,8 @@ def embed_names(con, emb):
 
 def _thumb_one(r):
     from .extract import quick_thumb, save_thumb
+    if thumb_path(r["id"]).exists():  # already made on demand by the server
+        return r["id"], 1
     try:
         im = quick_thumb(r["path"], r["kind"])
         if im is None:

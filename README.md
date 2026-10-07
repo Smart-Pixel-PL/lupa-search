@@ -40,6 +40,7 @@ Type *"photo of a football team on artificial turf"*, *"invoice for transport 20
 - 🧲 **Search by image.** Drop or paste a picture to find visually similar files. **"Similar"** works on any file.
 - 🏷️ **Tags and collections.** Colored tags for many files at once, favorites, and saved searches (*Invoices*, *Contracts*, *Logos*, *Screenshots*, …).
 - 🎛️ **Filters and sorting.** By type, date, drive, folder shortcuts (Downloads, Desktop, Documents, iCloud Drive) and tags. Sort by relevance, date, name, size or type.
+- 🧹 **Porządki: disk cleanup for your Mac.** Finds reclaimable space on the system disk (app caches, logs, old installers, leftovers of uninstalled apps, byte-identical duplicates, unused apps, big old files) and moves what you select to the Trash. More below.
 - 🗄️ **NAS-friendly.** Network drives are supported. The index and thumbnails stay local, so you can browse even when the NAS is offline, and Lupa re-indexes automatically when it comes back.
 - 🍏 **Native Mac app.** Dock icon, global hotkey **⌥⌘L**, starts at login, light and dark mode.
 - ⌨️ **Keyboard-first.** `/` search · arrows navigate · `Space` preview · `Q` full screen · `Enter` open · `⌘Enter` reveal in Finder · `S` similar · `T` tag · `F` favorite.
@@ -100,8 +101,28 @@ Edit `lupa.toml` in the project folder (it is created from [`lupa.example.toml`]
 | `image_tokens` | image detail: `70` fastest · `140` balanced · `280` full quality | `140` |
 | `reindex_every_hours` | automatic re-scan interval | `3` |
 | `exclude_dirs` / `exclude_paths` | what to skip | `node_modules`, `.git`, caches, … |
+| `[cleanup]` | Porządki: scan interval, low-space alert, age and size thresholds | 7 days, 15%, … |
 
 To use a different hotkey, assign one to the **Lupa** application in Raycast or Alfred.
+
+## Porządki (disk cleanup)
+
+A second tab that keeps your **local disk** clean, in layers from most to least certain:
+
+1. **Hard guards.** macOS system locations, Keychains, Mail, Messages, iCloud Drive and Lupa itself are never touched. Only `/Users/…` and `/Applications/…` are in scope, and network drives are excluded.
+2. **Safe by definition.** App and developer caches (npm, pip, uv, Gradle, Xcode), logs and `.dmg`/`.pkg` installers. Apps rebuild these themselves.
+3. **Leftovers of uninstalled apps.** `~/Library` folders are matched against the bundle IDs and names of every installed app, and must be untouched for at least 30 days.
+4. **Real usage.** macOS "last opened" dates for apps, Downloads and big files.
+
+| Category | Risk | Preselected |
+|---|---|---|
+| App caches · developer caches · logs | safe | yes (except apps that are currently running) |
+| Installers (.dmg, .pkg, .iso) | safe | if older than 30 days |
+| Leftovers of uninstalled apps · old Downloads · unused apps | check | no |
+| Duplicates (byte-identical, BLAKE2 checksum) | check | only obvious copies; the best copy always stays |
+| Big, long-unused files · iPhone/iPad backups | careful | no |
+
+**Nothing is deleted by Lupa.** Selected items go to the **Trash via Finder**, so *Put Back* works. Only paths from the latest scan can be trashed, and every action is logged. A scan takes about 15–20 s. Lupa re-scans weekly, sends a macOS notification when free space drops below 15%, and can optionally move caches and logs to the Trash every week. On the author's MacBook (460 GB, 7% free), the first scan found about 52 GB to reclaim.
 
 ## How it works
 
@@ -143,7 +164,7 @@ Details (architecture, file types, performance, security) are in the [specificat
 - English UI and language switch
 - OCR for scans (Tesseract)
 - Duplicate detection
-- Smaller memory footprint (quantized query model)
+- Porządki: local Gemma 4 adviser that explains unknown folders
 - Signed and notarized release builds
 
 ## License

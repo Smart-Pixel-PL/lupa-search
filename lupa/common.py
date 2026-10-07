@@ -131,12 +131,20 @@ DEFAULT_COLLECTIONS = [
 ]
 
 
+_SCHEMA_READY = False
+
+
 def connect(readonly=False) -> sqlite3.Connection:
+    global _SCHEMA_READY
     con = sqlite3.connect(DB_PATH, timeout=60, check_same_thread=False)
     con.row_factory = sqlite3.Row
-    con.execute("PRAGMA journal_mode=WAL")
+    con.execute("PRAGMA busy_timeout=60000")
+    if readonly:  # readers never take locks in WAL mode — don't issue journal/schema statements here
+        return con
     con.execute("PRAGMA synchronous=NORMAL")
-    if not readonly:
+    if not _SCHEMA_READY:
+        con.execute("PRAGMA journal_mode=WAL")
+        _SCHEMA_READY = True
         con.executescript(SCHEMA)
         if con.execute("SELECT count(*) FROM collections").fetchone()[0] == 0:
             con.executemany("INSERT INTO collections(name,query,kinds,icon,pos) VALUES(?,?,?,?,?)",

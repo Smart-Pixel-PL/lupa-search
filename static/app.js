@@ -572,6 +572,7 @@ addEventListener("keydown", e => {
   const typing = e.target.matches("input, textarea, select");
   if ((e.key === "/" && !typing) || (e.key === "k" && e.metaKey)) { e.preventDefault(); $("#q").focus(); $("#q").select(); return; }
   if (typing) return;
+  if (document.body.classList.contains("mode-clean")) return;  // Porządki tab has no grid shortcuts
   if (!$("#lightbox").hidden) {
     if (e.key === "Escape" || e.key === "q" || e.key === " ") { e.preventDefault(); closeLightbox(); }
     else if (e.key === "ArrowRight" || e.key === "ArrowDown") { e.preventDefault(); lbStep(1); }

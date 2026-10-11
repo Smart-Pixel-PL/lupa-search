@@ -81,6 +81,7 @@ def _bg_loop():
             came_back = any(v and prev.get(r) is False for r, v in _online.items())
             every = CFG.get("reindex_every_hours", 3)
             last = float(meta_get(c, "last_index", "0") or 0)
+            _indexer_speed()
             if not _cleanup_busy.locked():  # weekly Porządki scan / low-space alert, off the main loop
                 threading.Thread(target=_cleanup_periodic, daemon=True).start()
             if came_back and not indexer_running():  # e.g. NAS mounted again
@@ -128,6 +129,26 @@ def start_indexer(force_crawl=False):
     _indexer = subprocess.Popen(cmd, cwd=PROJECT, stdout=logf, stderr=subprocess.STDOUT,
                                 start_new_session=True)  # survives server restarts
     return True
+
+
+_speed_state = {}
+
+
+def _indexer_speed():
+    """A darwin-background process can't lift itself out of that state, so the server does it:
+    full speed (nice 10) on mains power, background QoS on battery."""
+    pidf = DATA / "indexer.pid"
+    if not CFG.get("fast_on_ac", True) or not pidf.exists():
+        return
+    try:
+        pid = int(pidf.read_text())
+        ac = "AC Power" in subprocess.run(["pmset", "-g", "batt"], capture_output=True, text=True, timeout=5).stdout
+        if _speed_state.get(pid) != ac:
+            subprocess.run(["taskpolicy", "-B" if ac else "-b", "-p", str(pid)], capture_output=True, timeout=5)
+            _speed_state.clear()
+            _speed_state[pid] = ac
+    except Exception:
+        pass
 
 
 def _pending_work(c) -> bool:

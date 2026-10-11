@@ -285,25 +285,6 @@ def make_thumbs(con):
     log(f"Miniatury: {done}")
 
 
-_FAST = None
-
-
-def set_speed(fast: bool):
-    """On mains power drop macOS background QoS (keeps nice 10, so user apps still win); on battery go back."""
-    global _FAST
-    if not CFG.get("fast_on_ac", True) or fast == _FAST:
-        return
-    try:
-        subprocess.run(["taskpolicy", "-B" if fast else "-b", "-p", str(os.getpid())], capture_output=True, timeout=5)
-        os.nice(0)  # no-op; priority value stays as set at launch
-        if fast and os.getpriority(os.PRIO_PROCESS, 0) < 10:
-            os.setpriority(os.PRIO_PROCESS, 0, 10)
-        log("Tryb: " + ("szybki (zasilanie z sieci)" if fast else "oszczędny (bateria)"))
-    except Exception:
-        pass
-    _FAST = fast
-
-
 def on_battery() -> bool:
     if not CFG.get("pause_on_battery", True):
         return False
@@ -343,7 +324,6 @@ def embed_content(con, emb, limit=None):
     rows = next_rows([])
     futs = [pool.submit(_extract_one, r) for r in rows]
     while rows and not STOP:
-        set_speed(not on_battery())
         while on_battery() and not STOP:  # heavy GPU work only on mains power
             status(con, phase="Wstrzymane — zasilanie z baterii (wznowi się po podłączeniu ładowarki)",
                    done=done, total=total, current="")
@@ -462,7 +442,6 @@ def main():
     con = connect()
     try:
         status(con, running=True, started=time.time(), phase="Start", done=0, total=0, current="")
-        set_speed(not on_battery())
         local = [r for r in CFG["roots"] if not r.startswith("/Volumes/")]
         network = [r for r in CFG["roots"] if r.startswith("/Volumes/")]
         # A full NAS walk takes ~30-60 min of network I/O: do it at most once per `network_rescan_hours`

@@ -125,30 +125,42 @@ def start_indexer(force_crawl=False):
     logf = open(DATA / "indexer.log", "a")
     # taskpolicy -b = macOS "background" QoS: efficiency cores + throttled disk I/O, so the indexer only
     # uses what the user's apps leave free (the Mac stays responsive while it works).
-    cmd = ["taskpolicy", "-b", sys.executable, "-m", "lupa.indexer"] + (["--force-crawl"] if force_crawl else [])
+    # macOS background QoS is fixed per thread at launch and can't be lifted later, so the mode is chosen here:
+    # mains power → nice 10 (user apps still win, full speed otherwise); battery → background QoS.
+    ac = _on_ac()
+    prefix = ["nice", "-n", "10"] if ac or not CFG.get("fast_on_ac", True) else ["taskpolicy", "-b"]
+    cmd = prefix + [sys.executable, "-m", "lupa.indexer"] + (["--force-crawl"] if force_crawl else [])
+    (DATA / "indexer.mode").write_text("ac" if ac else "battery")
     _indexer = subprocess.Popen(cmd, cwd=PROJECT, stdout=logf, stderr=subprocess.STDOUT,
                                 start_new_session=True)  # survives server restarts
     return True
 
 
-_speed_state = {}
+def _on_ac() -> bool:
+    try:
+        return "AC Power" in subprocess.run(["pmset", "-g", "batt"], capture_output=True, text=True, timeout=5).stdout
+    except Exception:
+        return True
+
+
+_last_mode_switch = 0.0
 
 
 def _indexer_speed():
-    """A darwin-background process can't lift itself out of that state, so the server does it:
-    full speed (nice 10) on mains power, background QoS on battery."""
-    pidf = DATA / "indexer.pid"
-    if not CFG.get("fast_on_ac", True) or not pidf.exists():
+    """Relaunch the indexer when the power source changes (it resumes where it stopped, no rescans)."""
+    global _last_mode_switch
+    if not CFG.get("fast_on_ac", True) or not indexer_running() or time.time() - _last_mode_switch < 600:
         return
     try:
-        pid = int(pidf.read_text())
-        ac = "AC Power" in subprocess.run(["pmset", "-g", "batt"], capture_output=True, text=True, timeout=5).stdout
-        if _speed_state.get(pid) != ac:
-            subprocess.run(["taskpolicy", "-B" if ac else "-b", "-p", str(pid)], capture_output=True, timeout=5)
-            _speed_state.clear()
-            _speed_state[pid] = ac
-    except Exception:
-        pass
+        mode = (DATA / "indexer.mode").read_text().strip()
+    except OSError:
+        return
+    if mode != ("ac" if _on_ac() else "battery"):
+        _last_mode_switch = time.time()
+        try:
+            os.kill(int((DATA / "indexer.pid").read_text()), signal.SIGTERM)  # bg loop restarts it in the new mode
+        except (OSError, ValueError):
+            pass
 
 
 def _pending_work(c) -> bool:

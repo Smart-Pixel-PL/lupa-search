@@ -475,8 +475,8 @@ def status():
 
 
 @app.post("/api/index/start")
-def index_start():
-    return {"started": start_indexer(force_crawl=True)}  # manual button = full rescan incl. NAS
+def index_start(full: int = 0):
+    return {"started": start_indexer(force_crawl=bool(full))}  # ?full=1 (UI button) = also rescan NAS
 
 
 @app.post("/api/index/stop")

@@ -19,6 +19,13 @@ network_rescan_hours = 24
 # Content analysis (GPU) only on mains power; pauses on battery.
 pause_on_battery = true
 
+# Na zasilaniu z sieci indeksator pracuje szybciej (bez trybu tła macOS). / Faster on mains power.
+fast_on_ac = true
+
+# Typy plików na dyskach sieciowych analizowane tylko po nazwie (kod i HTML to zwykle kopie stron).
+# File kinds on network drives indexed by name only (code/HTML there are mostly website exports).
+name_only_on_network = ["code", "web", "font"]
+
 # Local web UI port: http://localhost:7766
 port = 7766
 

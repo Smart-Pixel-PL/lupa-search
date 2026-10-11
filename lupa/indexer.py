@@ -210,6 +210,17 @@ def migrate_nfc(con, emb):
     con.commit()
 
 
+NAME_ONLY_ON_NETWORK = set(CFG.get("name_only_on_network", ["code", "web", "font"]))
+
+
+def wants_content(r) -> bool:
+    """Content analysis is worth it for documents/images/media; source code & HTML copies on a NAS are
+    searched by name and folder only (they are mostly website exports and would take days to embed)."""
+    if r["kind"] not in CONTENT_KINDS or r["dataless"]:
+        return False
+    return not (r["root"].startswith("/Volumes/") and r["kind"] in NAME_ONLY_ON_NETWORK)
+
+
 def embed_names(con, emb):
     total = con.execute("SELECT count(*) FROM files WHERE stage=0").fetchone()[0]
     done = 0
@@ -230,7 +241,7 @@ def embed_names(con, emb):
         con.executemany("INSERT INTO fts(rowid,name,folder,body) VALUES(?,?,?,'')",
                         [(r["id"], r["name"], f) for r, f in zip(rows, folders)])
         con.executemany("UPDATE files SET stage=? WHERE id=?",
-                        [(1 if r["kind"] in CONTENT_KINDS and not r["dataless"] else 3, r["id"]) for r in rows])
+                        [(1 if wants_content(r) else 3, r["id"]) for r in rows])
         meta_set(con, "vec_gen_add", time.time())
         done += len(rows)
         status(con, phase="Indeksowanie nazw", done=done, total=total, current=rows[-1]["path"])
@@ -274,6 +285,25 @@ def make_thumbs(con):
     log(f"Miniatury: {done}")
 
 
+_FAST = None
+
+
+def set_speed(fast: bool):
+    """On mains power drop macOS background QoS (keeps nice 10, so user apps still win); on battery go back."""
+    global _FAST
+    if not CFG.get("fast_on_ac", True) or fast == _FAST:
+        return
+    try:
+        subprocess.run(["taskpolicy", "-B" if fast else "-b", "-p", str(os.getpid())], capture_output=True, timeout=5)
+        os.nice(0)  # no-op; priority value stays as set at launch
+        if fast and os.getpriority(os.PRIO_PROCESS, 0) < 10:
+            os.setpriority(os.PRIO_PROCESS, 0, 10)
+        log("Tryb: " + ("szybki (zasilanie z sieci)" if fast else "oszczędny (bateria)"))
+    except Exception:
+        pass
+    _FAST = fast
+
+
 def on_battery() -> bool:
     if not CFG.get("pause_on_battery", True):
         return False
@@ -300,6 +330,7 @@ def embed_content(con, emb, limit=None):
     offline = {r for r in CFG["roots"] if not root_online(r)}
     pool = ThreadPoolExecutor(4)
     skip_ids = []
+    win = []  # (time, files) of recent batches → current speed, unaffected by battery pauses
 
     def next_rows(busy):
         excl = ",".join("?" * len(offline)) or "''"
@@ -312,6 +343,7 @@ def embed_content(con, emb, limit=None):
     rows = next_rows([])
     futs = [pool.submit(_extract_one, r) for r in rows]
     while rows and not STOP:
+        set_speed(not on_battery())
         while on_battery() and not STOP:  # heavy GPU work only on mains power
             status(con, phase="Wstrzymane — zasilanie z baterii (wznowi się po podłączeniu ładowarki)",
                    done=done, total=total, current="")
@@ -371,7 +403,12 @@ def embed_content(con, emb, limit=None):
             if ex.text.strip():
                 con.execute("UPDATE fts SET body=? WHERE rowid=?", (ex.text, fid))
         done += len(rows)
-        rate = done / max(time.time() - t0, 1)
+        now = time.time()
+        win.append((now, len(rows)))
+        while len(win) > 30:
+            win.pop(0)
+        span = now - win[0][0] if len(win) > 1 else now - t0
+        rate = sum(n for _, n in win[1:]) / max(span, 1) if len(win) > 1 else len(rows) / max(now - t0, 1)
         status(con, phase="Analiza treści (obrazy, dokumenty, wideo, audio)", done=done, total=total,
                current=rows[-1]["path"], rate=round(rate, 2))
         del results, img_items, txt_items, aud_items, updates, vec_rows
@@ -425,6 +462,7 @@ def main():
     con = connect()
     try:
         status(con, running=True, started=time.time(), phase="Start", done=0, total=0, current="")
+        set_speed(not on_battery())
         local = [r for r in CFG["roots"] if not r.startswith("/Volumes/")]
         network = [r for r in CFG["roots"] if r.startswith("/Volumes/")]
         # A full NAS walk takes ~30-60 min of network I/O: do it at most once per `network_rescan_hours`
@@ -444,6 +482,12 @@ def main():
         migrate_nfc(con, emb)
         con.execute("""UPDATE files SET kind='design', stage=CASE WHEN stage=3 THEN 1 ELSE stage END
                        WHERE ext='.af' AND kind!='design'""")
+        if NAME_ONLY_ON_NETWORK:
+            q = ",".join("?" * len(NAME_ONLY_ON_NETWORK))
+            n = con.execute(f"""UPDATE files SET stage=3 WHERE stage=1 AND root LIKE '/Volumes/%'
+                                AND kind IN ({q})""", list(NAME_ONLY_ON_NETWORK)).rowcount
+            if n:
+                log(f"{n} plików kodu/HTML z NAS — tylko nazwa (name_only_on_network)")
         con.commit()
         embed_names(con, emb)  # local files become searchable before the slow NAS scan
         if not a.no_crawl and network:

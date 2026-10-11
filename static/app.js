@@ -362,7 +362,7 @@ function renderStatus() {
       ${(ix.denied || []).length ? `<div class="warn" title="${esc(ix.denied.join("\n"))}">⚠️ Brak dostępu do ${ix.denied.length} folderów — Ustawienia → Prywatność → Pełny dostęp do dysku → Lupa</div>` : ""}
       <button id="ixStart">Indeksuj teraz</button>`}
     ${s.model_ready ? "" : `<div style="margin-top:6px">🧠 Ładuję model…</div>`}`;
-  $("#ixStart")?.addEventListener("click", async () => { await api("/api/index/start", { method: "POST" }); toast("Indeksowanie wystartowało"); setTimeout(loadStatus, 1500); });
+  $("#ixStart")?.addEventListener("click", async () => { await api("/api/index/start?full=1", { method: "POST" }); toast("Indeksowanie wystartowało"); setTimeout(loadStatus, 1500); });
   $("#ixStop")?.addEventListener("click", async () => { await api("/api/index/stop", { method: "POST" }); toast("Zatrzymuję po bieżącej paczce"); });
 }
 

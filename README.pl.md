@@ -37,7 +37,7 @@ Wpisz *„zdjęcie drużyny na sztucznej murawie”*, *„faktura za transport 2
 - 🖼️ **Dla wzrokowców:** duże miniatury, szybki podgląd, pełny ekran (←/→), filmy odtwarzane po najechaniu i przewijane do pasującego momentu.
 - 🧲 **Szukanie obrazem:** przeciągnij lub wklej zdjęcie, żeby znaleźć podobne. Przycisk **„Podobne”** działa dla każdego pliku.
 - 🏷️ **Tagi i kolekcje:** kolorowe tagi (także dla wielu plików naraz), ulubione i zapisane wyszukiwania.
-- 🎛️ **Filtry i sortowanie:** typ, data, dysk, skróty folderów (Pobrane, Biurko, Dokumenty, iCloud Drive), tagi.
+- 🎛️ **Filtry i sortowanie:** typ, format (PSD, TIFF, Affinity, AI, SVG), data, dysk, skróty folderów (Pobrane, Biurko, Dokumenty, iCloud Drive), tagi.
 - 🧹 **Porządki:** odzyskiwanie miejsca na dysku Maca. Lupa znajduje cache, logi, stare instalatory, resztki po odinstalowanych aplikacjach, identyczne duplikaty, nieużywane aplikacje i duże stare pliki, a zaznaczone przenosi do Kosza (zawsze da się je przywrócić).
 - 🗄️ **Obsługa NAS:** indeks i miniatury zostają lokalnie, więc przeglądanie działa nawet przy odłączonym dysku sieciowym.
 - 🍏 **Natywna aplikacja:** ikona w Docku, skrót **⌥⌘L**, autostart, tryb jasny i ciemny.
@@ -68,7 +68,7 @@ Odinstalowanie: `./uninstall.sh`
 
 ## Użytkowanie
 
-Otwórz **Lupę** z Launchpada albo naciśnij **⌥⌘L**. Pierwsze indeksowanie rusza samo: najpierw skan i nazwy (po kilku minutach wszystko da się znaleźć po nazwie), potem miniatury, a na końcu analiza treści, która przy dużych zbiorach trwa kilka godzin. Indeksowanie działa z niskim priorytetem i można je wstrzymać w lewym dolnym rogu.
+Otwórz **Lupę** z Launchpada albo naciśnij **⌥⌘L**. Pierwsze indeksowanie rusza samo: najpierw skan i nazwy (po kilku minutach wszystko da się znaleźć po nazwie), potem miniatury, a na końcu analiza treści, która przy dużych zbiorach trwa kilka godzin. Indeksowanie działa z najniższym priorytetem systemowym, więc nie spowalnia pracy na Macu. Po restarcie wznawia pracę od miejsca, w którym stanęło, dyski sieciowe skanuje najwyżej raz na dobę, a na baterii wstrzymuje analizę. Można je też wstrzymać w lewym dolnym rogu.
 
 Konfiguracja jest w pliku `lupa.toml` w folderze projektu (powstaje z [`lupa.example.toml`](lupa.example.toml)). Ustawisz w nim foldery do indeksowania (np. dysk sieciowy `"/Volumes/NAS"`), skróty folderów, wykluczenia i jakość analizy obrazów.
 

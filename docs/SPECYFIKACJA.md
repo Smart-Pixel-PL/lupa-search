@@ -1,6 +1,6 @@
 # Lupa — specyfikacja aplikacji
 
-> Wersja 0.2.1 (beta) · październik 2026 · © Smart Pixel · licencja MIT
+> Wersja 0.2.2 (beta) · październik 2026 · © Smart Pixel · licencja MIT
 
 ## 1. Czym jest Lupa
 
@@ -103,6 +103,11 @@ Internet był potrzebny tylko raz, do pobrania modelu.
 └──────────────────────────────┘
 ```
 
+**Harmonogram indeksowania.** Po starcie indeksator wznawia przerwaną pracę (bez ponownego skanu). Dysk lokalny
+skanowany jest co `reindex_every_hours` (sekundy), dyski sieciowe najwyżej raz na `network_rescan_hours` (domyślnie 24 h;
+przycisk „Indeksuj teraz” wymusza pełny skan). Indeksator działa w trybie macOS *background QoS* (`taskpolicy -b`:
+rdzenie energooszczędne i dławione I/O), więc nie spowalnia pracy na Macu, a na zasilaniu bateryjnym wstrzymuje analizę treści.
+
 Silnik uruchamia Lupa.app jako swój proces potomny. Dzięki temu uprawnienie **Pełny dostęp do dysku**
 nadane „Lupie” obejmuje też indeksator (macOS chroni Pobrane, Biurko i Dokumenty).
 Zamknięcie okna (⌘W) zostawia Lupę w tle, a ⌘Q zatrzymuje ją razem z silnikiem.
@@ -179,7 +184,7 @@ Pełna lista jest w `lupa.toml`.
 - panel podglądu: obraz, odtwarzacz wideo/audio, PDF, tekst dokumentu, metadane
 - pełny ekran z przewijaniem strzałkami (`Q`)
 - najechanie na film odtwarza podgląd
-- filtry: typ pliku, czas, dysk, skróty folderów (Pobrane, Biurko, Dokumenty, iCloud Drive), konkretny folder, tagi
+- filtry: typ pliku, **format** (PSD, TIFF, Affinity `.af/.afdesign/.afphoto/.afpub`, AI, SVG — konfigurowalne), czas, dysk, skróty folderów (Pobrane, Biurko, Dokumenty, iCloud Drive), konkretny folder, tagi
 - sortowanie: trafność, data modyfikacji/utworzenia, nazwa, rozmiar, typ
 - tagi z wyborem koloru, zmianą nazwy i tagowaniem wielu plików naraz; ulubione
 - kolekcje, czyli zapisane wyszukiwania (10 gotowych: Faktury, Umowy, Oferty, Logotypy, Zrzuty ekranu…)
@@ -277,7 +282,10 @@ Przykład z pierwszego uruchomienia (MacBook Pro, 460 GB, 7% wolnego): **~52 GB 
 |---|---|---|
 | `roots` | indeksowane foldery (np. dodaj `/Volumes/NAS`) | `~` (folder domowy) |
 | `places` | skróty w sekcji „Gdzie” | Pobrane, Biurko, Dokumenty, Obrazy, iCloud Drive |
-| `reindex_every_hours` | automatyczne odświeżanie | 3 |
+| `reindex_every_hours` | automatyczne odświeżanie dysku lokalnego | 3 |
+| `network_rescan_hours` | pełny skan dysków sieciowych najwyżej co tyle godzin | 24 |
+| `pause_on_battery` | analiza treści tylko przy zasilaniu z sieci | `true` |
+| `formats` | skróty formatów w panelu bocznym | PSD, TIFF, Affinity, AI, SVG |
 | `image_tokens` | szczegółowość analizy obrazów (70/140/280) | 140 |
 | `dim` | wymiar wektorów (128–768) | 256 |
 | `[cleanup]` | Porządki: interwał skanu, próg alertu, progi wieku/rozmiaru | 7 dni, 15%, 200 MB, rok |

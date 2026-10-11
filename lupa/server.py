@@ -13,7 +13,7 @@ from fastapi import Body, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from .common import (CFG, DATA, KIND_LABELS, PROJECT, V_VISUAL, connect, meta_get, meta_set, root_online,
+from .common import (CFG, DATA, DEFAULT_FORMATS, KIND_LABELS, PROJECT, V_VISUAL, connect, meta_get, meta_set, root_online,
                      thumb_path)
 from .search import REASONS, VectorIndex, keyword_hits
 
@@ -85,7 +85,10 @@ def _bg_loop():
                 threading.Thread(target=_cleanup_periodic, daemon=True).start()
             if came_back and not indexer_running():  # e.g. NAS mounted again
                 start_indexer()
-            elif every and not indexer_running() and time.time() - max(last, last_try) > every * 3600:
+            elif not indexer_running() and time.time() - last_try > 600 and (
+                    _pending_work(c) or (every and time.time() - last > every * 3600)):
+                # resume unfinished work right away; otherwise a cheap refresh every `every` hours
+                # (the indexer itself decides whether the slow NAS scan is due — at most daily)
                 last_try = time.time()
                 start_indexer()
             c.close()
@@ -114,15 +117,21 @@ def indexer_running():
     return False
 
 
-def start_indexer():
+def start_indexer(force_crawl=False):
     global _indexer
     if indexer_running():
         return False
     logf = open(DATA / "indexer.log", "a")
-    _indexer = subprocess.Popen(
-        ["nice", "-n", "10", sys.executable, "-m", "lupa.indexer"], cwd=PROJECT,
-        stdout=logf, stderr=subprocess.STDOUT, start_new_session=True)  # survives server restarts
+    # taskpolicy -b = macOS "background" QoS: efficiency cores + throttled disk I/O, so the indexer only
+    # uses what the user's apps leave free (the Mac stays responsive while it works).
+    cmd = ["taskpolicy", "-b", sys.executable, "-m", "lupa.indexer"] + (["--force-crawl"] if force_crawl else [])
+    _indexer = subprocess.Popen(cmd, cwd=PROJECT, stdout=logf, stderr=subprocess.STDOUT,
+                                start_new_session=True)  # survives server restarts
     return True
+
+
+def _pending_work(c) -> bool:
+    return c.execute("SELECT 1 FROM files WHERE stage IN (0,1) LIMIT 1").fetchone() is not None
 
 
 # ------------------------------------------------------------- helpers
@@ -139,6 +148,10 @@ def _filters_sql(p):
     if p.get("since"):
         where.append("f.mtime >= ?")
         args.append(time.time() - float(p["since"]) * 86400)
+    if p.get("exts"):
+        es = [e if e.startswith(".") else "." + e for e in p["exts"].lower().split(",") if e]
+        where.append(f"f.ext IN ({','.join('?' * len(es))})")
+        args += es
     if p.get("minsize"):
         where.append("f.size >= ?")
         args.append(int(p["minsize"]))
@@ -153,7 +166,7 @@ def _filters_sql(p):
 
 
 def _has_filters(p):
-    return any(p.get(k) for k in ("kinds", "roots", "since", "minsize", "folder", "tags"))
+    return any(p.get(k) for k in ("kinds", "exts", "roots", "since", "minsize", "folder", "tags"))
 
 
 def _rows_to_items(c, rows, extra=None):
@@ -450,6 +463,9 @@ def status():
         "roots": [{"path": r, "online": _online.get(r, root_online(r)),
                    "count": c.execute("SELECT count(*) FROM files WHERE root=?", (r,)).fetchone()[0]}
                   for r in CFG["roots"]],
+        "formats": [{**fm, "count": c.execute(
+            f"SELECT count(*) FROM files WHERE ext IN ({','.join('?' * len(fm['exts']))})", fm["exts"]).fetchone()[0]}
+            for fm in CFG.get("formats", DEFAULT_FORMATS)],
         "places": [{**pl, "count": c.execute("SELECT count(*) FROM files WHERE path >= ? AND path < ?",
                                               (pl["path"] + "/", pl["path"] + "0")).fetchone()[0]}
                    for pl in CFG.get("places", [])],
@@ -460,7 +476,7 @@ def status():
 
 @app.post("/api/index/start")
 def index_start():
-    return {"started": start_indexer()}
+    return {"started": start_indexer(force_crawl=True)}  # manual button = full rescan incl. NAS
 
 
 @app.post("/api/index/stop")

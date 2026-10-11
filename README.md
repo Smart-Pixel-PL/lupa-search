@@ -39,7 +39,7 @@ Type *"photo of a football team on artificial turf"*, *"invoice for transport 20
 - 🖼️ **Built for visual people.** Large thumbnail grid, fast preview panel, full-screen viewer (←/→), and videos that play on hover and jump to the matching moment.
 - 🧲 **Search by image.** Drop or paste a picture to find visually similar files. **"Similar"** works on any file.
 - 🏷️ **Tags and collections.** Colored tags for many files at once, favorites, and saved searches (*Invoices*, *Contracts*, *Logos*, *Screenshots*, …).
-- 🎛️ **Filters and sorting.** By type, date, drive, folder shortcuts (Downloads, Desktop, Documents, iCloud Drive) and tags. Sort by relevance, date, name, size or type.
+- 🎛️ **Filters and sorting.** By type, format (PSD, TIFF, Affinity, AI, SVG…), date, drive, folder shortcuts (Downloads, Desktop, Documents, iCloud Drive) and tags. Sort by relevance, date, name, size or type.
 - 🧹 **Porządki: disk cleanup for your Mac.** Finds reclaimable space on the system disk (app caches, logs, old installers, leftovers of uninstalled apps, byte-identical duplicates, unused apps, big old files) and moves what you select to the Trash. More below.
 - 🗄️ **NAS-friendly.** Network drives are supported. The index and thumbnails stay local, so you can browse even when the NAS is offline, and Lupa re-indexes automatically when it comes back.
 - 🍏 **Native Mac app.** Dock icon, global hotkey **⌥⌘L**, starts at login, light and dark mode.
@@ -88,7 +88,7 @@ Open **Lupa** from Launchpad, or press **⌥⌘L** anywhere. The first indexing 
 3. **Thumbnails:** the grid fills with real previews.
 4. **Content analysis:** images, PDFs, Office documents, video and audio. On a large library this can take hours. It runs at low priority, and you can pause it in the bottom-left corner.
 
-After that, Lupa re-scans every 3 hours and only analyses new or changed files.
+After that, Lupa re-scans local disks every 3 hours, network drives once a day, and only analyses new or changed files. The indexer runs at macOS background priority (it never slows down your work), resumes where it stopped after a restart, and pauses content analysis on battery.
 
 ### Configuration
 
@@ -99,7 +99,10 @@ Edit `lupa.toml` in the project folder (it is created from [`lupa.example.toml`]
 | `roots` | folders to index (add e.g. `"/Volumes/NAS"`) | `["~"]` |
 | `places` | folder shortcuts in the sidebar | Downloads, Desktop, Documents, Pictures, iCloud Drive |
 | `image_tokens` | image detail: `70` fastest · `140` balanced · `280` full quality | `140` |
-| `reindex_every_hours` | automatic re-scan interval | `3` |
+| `reindex_every_hours` | local re-scan interval | `3` |
+| `network_rescan_hours` | full scan of network drives at most every N hours | `24` |
+| `pause_on_battery` | pause content analysis on battery | `true` |
+| `formats` | format shortcuts in the sidebar | PSD, TIFF, Affinity, AI, SVG |
 | `exclude_dirs` / `exclude_paths` | what to skip | `node_modules`, `.git`, caches, … |
 | `[cleanup]` | Porządki: scan interval, low-space alert, age and size thresholds | 7 days, 15%, … |
 

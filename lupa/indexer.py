@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import signal
+import subprocess
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -254,9 +255,12 @@ def make_thumbs(con):
     """Fast CPU-only pass so the grid shows real previews long before the (slow) GPU analysis finishes."""
     offline = [r for r in CFG["roots"] if not root_online(r)]
     excl = ",".join("?" * len(offline)) or "''"
+    # Local disks only: NAS files get their thumbnail during content analysis (one network read instead of two).
+    excl_roots = offline + [r for r in CFG["roots"] if r.startswith("/Volumes/")]
+    excl = ",".join("?" * len(excl_roots)) or "''"
     rows = con.execute(f"""SELECT id,path,kind,root FROM files WHERE thumb=0 AND dataless=0
                            AND kind IN ('image','video','pdf') AND root NOT IN ({excl})
-                           ORDER BY mtime DESC""", offline).fetchall()
+                           ORDER BY mtime DESC""", excl_roots).fetchall()
     total, done = len(rows), 0
     with ThreadPoolExecutor(6) as pool:
         for i in range(0, total, 96):
@@ -268,6 +272,16 @@ def make_thumbs(con):
             done += len(part)
             status(con, phase="Miniatury", done=done, total=total, current=part[-1]["path"])
     log(f"Miniatury: {done}")
+
+
+def on_battery() -> bool:
+    if not CFG.get("pause_on_battery", True):
+        return False
+    try:
+        out = subprocess.run(["pmset", "-g", "batt"], capture_output=True, text=True, timeout=5).stdout
+        return "Battery Power" in out
+    except Exception:
+        return False
 
 
 def _extract_one(r):
@@ -284,7 +298,7 @@ def embed_content(con, emb, limit=None):
     total = con.execute("SELECT count(*) FROM files WHERE stage=1").fetchone()[0]
     done, t0 = 0, time.time()
     offline = {r for r in CFG["roots"] if not root_online(r)}
-    pool = ThreadPoolExecutor(6)
+    pool = ThreadPoolExecutor(4)
     skip_ids = []
 
     def next_rows(busy):
@@ -298,6 +312,10 @@ def embed_content(con, emb, limit=None):
     rows = next_rows([])
     futs = [pool.submit(_extract_one, r) for r in rows]
     while rows and not STOP:
+        while on_battery() and not STOP:  # heavy GPU work only on mains power
+            status(con, phase="Wstrzymane — zasilanie z baterii (wznowi się po podłączeniu ładowarki)",
+                   done=done, total=total, current="")
+            time.sleep(60)
         results = [f.result() for f in futs]
         # prefetch the next batch from disk/NAS while the GPU works on this one
         nxt = next_rows([r["id"] for r in rows]) if not (limit and done + len(rows) >= limit) else []
@@ -393,6 +411,7 @@ def main():
     ap.add_argument("--crawl-only", action="store_true")
     ap.add_argument("--no-crawl", action="store_true")
     ap.add_argument("--limit", type=int, default=None, help="max files for content pass (testing)")
+    ap.add_argument("--force-crawl", action="store_true", help="rescan network drives even if scanned recently")
     a = ap.parse_args()
 
     def _stop(*_):
@@ -408,6 +427,13 @@ def main():
         status(con, running=True, started=time.time(), phase="Start", done=0, total=0, current="")
         local = [r for r in CFG["roots"] if not r.startswith("/Volumes/")]
         network = [r for r in CFG["roots"] if r.startswith("/Volumes/")]
+        # A full NAS walk takes ~30-60 min of network I/O: do it at most once per `network_rescan_hours`
+        # (default 24) instead of on every start. Local disks take seconds and are always rescanned.
+        due = time.time() - float(meta_get(con, "crawl_network_at", "0") or 0) > CFG.get("network_rescan_hours", 24) * 3600
+        if not (a.force_crawl or due):
+            if network:
+                log("Skan NAS pominięty — był niedawno (network_rescan_hours)")
+            network = []
         if not a.no_crawl:
             crawl(con, local, cleanup=False)  # seconds
         if a.crawl_only and not network:
@@ -416,6 +442,9 @@ def main():
         status(con, phase="Ładowanie modelu")
         emb = Embedder()
         migrate_nfc(con, emb)
+        con.execute("""UPDATE files SET kind='design', stage=CASE WHEN stage=3 THEN 1 ELSE stage END
+                       WHERE ext='.af' AND kind!='design'""")
+        con.commit()
         embed_names(con, emb)  # local files become searchable before the slow NAS scan
         if not a.no_crawl and network:
             # a NAS scan can take an hour of pure I/O — don't sit on GBs of model memory meanwhile
@@ -425,6 +454,9 @@ def main():
             import gc
             gc.collect()
             crawl(con, network)  # also drops files of roots removed from config
+            if not STOP:
+                meta_set(con, "crawl_network_at", time.time())
+                con.commit()
             status(con, phase="Ładowanie modelu")
             emb = Embedder()
         elif not a.no_crawl:
@@ -432,7 +464,14 @@ def main():
         if a.crawl_only:
             return
         embed_names(con, emb)
+        # thumbnails are CPU-only: give the model's memory back meanwhile
+        emb.free()
+        del emb
+        import gc
+        gc.collect()
         make_thumbs(con)
+        status(con, phase="Ładowanie modelu")
+        emb = Embedder()
         embed_content(con, emb, limit=a.limit)
         meta_set(con, "last_index", time.time())
     except Exception as e:

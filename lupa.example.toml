@@ -13,6 +13,12 @@ places = [
   { name = "iCloud Drive", path = "~/Library/Mobile Documents/com~apple~CloudDocs", icon = "☁️" },
 ]
 
+# Full scan of network drives (NAS) at most every N hours — it is slow, so not on every start.
+network_rescan_hours = 24
+
+# Content analysis (GPU) only on mains power; pauses on battery.
+pause_on_battery = true
+
 # Local web UI port: http://localhost:7766
 port = 7766
 

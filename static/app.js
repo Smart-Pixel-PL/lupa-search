@@ -14,7 +14,7 @@ const store = {
 };
 
 const S = {
-  q: "", kinds: new Set(), since: "", roots: new Set(), folder: "", tags: new Set(), collection: null, similar: null,
+  q: "", kinds: new Set(), exts: new Set(), since: "", roots: new Set(), folder: "", tags: new Set(), collection: null, similar: null,
   image: null, sort: "relevance", order: "desc",
   view: store.get("view", "grid"), fit: store.get("fit", false), zoom: store.get("zoom", 190),
   items: [], total: 0, loading: false, sel: new Set(), cur: -1, tagsList: [], cols: [], status: null, reqId: 0,
@@ -46,6 +46,7 @@ function params(extra = {}, forUrl = false) {
   if (S.collection) p.set("collection", S.collection);
   if (S.similar) p.set("similar", S.similar);
   if (S.kinds.size) p.set("kinds", [...S.kinds].join(","));
+  if (S.exts.size) p.set("exts", [...S.exts].join(","));
   if (S.roots.size) p.set("roots", [...S.roots].join("|"));
   if (S.since) p.set("since", S.since);
   if (S.folder) p.set("folder", S.folder);
@@ -308,6 +309,14 @@ function renderKinds() {
     `<button data-k="${x}" class="${S.kinds.has(x) ? "on" : ""}">${ICON[x]} ${esc(labels[x] || x)}<small>${k[x].toLocaleString("pl-PL")}</small></button>`).join("");
 }
 
+function renderFormats() {
+  $("#formats").innerHTML = (S.status?.formats || []).filter(f => f.count).map(f => {
+    const key = f.exts.join(",");
+    const on = f.exts.every(e => S.exts.has(e));
+    return `<button data-f="${esc(key)}" class="${on ? "on" : ""}" title="${esc(f.exts.join(" "))}">${esc(f.icon || "")} ${esc(f.name)}<small>${f.count.toLocaleString("pl-PL")}</small></button>`;
+  }).join("") || `<small style="color:var(--muted)">brak plików w tych formatach</small>`;
+}
+
 function renderRoots() {
   $("#roots").innerHTML = (S.status?.roots || []).map(r => `<button class="item ${S.roots.has(r.path) ? "on" : ""}" data-r="${esc(r.path)}">
     <span class="dot ${r.online ? "online" : "offline"}" title="${r.online ? "online" : "offline — wyniki z indeksu"}"></span>
@@ -361,7 +370,7 @@ async function loadStatus() {
   try {
     const first = !S.status;
     S.status = await api("/api/status");
-    renderKinds(); renderRoots(); renderStatus();
+    renderKinds(); renderFormats(); renderRoots(); renderStatus();
     if (first) search();
   } catch {}
   clearTimeout(loadStatus._t);
@@ -398,6 +407,14 @@ $("#kinds").addEventListener("click", e => {
   if (e.metaKey || e.shiftKey) S.kinds.has(k) ? S.kinds.delete(k) : S.kinds.add(k);
   else { const only = S.kinds.size === 1 && S.kinds.has(k); S.kinds.clear(); if (!only) S.kinds.add(k); }
   renderKinds(); search();
+});
+$("#formats").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  const exts = b.dataset.f.split(",");
+  const on = exts.every(x => S.exts.has(x));
+  if (!(e.metaKey || e.shiftKey)) S.exts.clear();  // ⌘/⇧-click combines formats
+  exts.forEach(x => on ? S.exts.delete(x) : S.exts.add(x));
+  renderFormats(); search();
 });
 $("#since").addEventListener("click", e => {
   const b = e.target.closest("button"); if (!b) return;
@@ -607,6 +624,7 @@ addEventListener("focus", () => { if (!document.activeElement || document.active
   const p = new URLSearchParams(location.search);
   S.q = p.get("q") || ""; $("#q").value = S.q;
   if (p.get("kinds")) p.get("kinds").split(",").forEach(k => S.kinds.add(k));
+  if (p.get("exts")) p.get("exts").split(",").forEach(x => S.exts.add(x));
   if (p.get("roots")) p.get("roots").split("|").forEach(r => S.roots.add(r));
   if (p.get("tags")) p.get("tags").split(",").forEach(t => S.tags.add(+t));
   if (p.get("collection")) S.collection = +p.get("collection");

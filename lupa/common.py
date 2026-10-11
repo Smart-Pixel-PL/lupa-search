@@ -53,7 +53,7 @@ KINDS = {
     "doc": "doc docx odt rtf pages",
     "sheet": "xls xlsx xlsm ods csv numbers tsv",
     "slides": "ppt pptx odp key",
-    "design": "psd psb ai eps indd sketch fig afdesign afphoto afpub xd aep prproj drp cdr",
+    "design": "psd psb ai eps indd sketch fig af afdesign afphoto afpub xd aep prproj drp cdr",
     "text": "txt md markdown rst log tex org",
     "web": "html htm xml",
     "code": "py js ts tsx jsx json yaml yml toml css scss sh zsh swift kt java c h cpp m rb go rs php sql ini cfg vue svelte lua r ipynb",
@@ -69,6 +69,15 @@ KIND_LABELS = {
     "text": "Tekst", "web": "HTML", "code": "Kod", "font": "Fonty", "archive": "Archiwa",
     "model3d": "3D", "package": "Aplikacje/pakiety", "other": "Inne",
 }
+
+# Format shortcuts in the sidebar (label -> extensions); override with `formats` in lupa.toml.
+DEFAULT_FORMATS = [
+    {"name": "PSD", "exts": [".psd", ".psb"], "icon": "🟦"},
+    {"name": "TIFF", "exts": [".tif", ".tiff"], "icon": "🖼️"},
+    {"name": "Affinity", "exts": [".af", ".afdesign", ".afphoto", ".afpub"], "icon": "🔺"},
+    {"name": "AI", "exts": [".ai"], "icon": "🟧"},
+    {"name": "SVG", "exts": [".svg"], "icon": "✏️"},
+]
 
 # Indexing priority for content (lower = earlier)
 KIND_PRIORITY = {"image": 0, "pdf": 1, "doc": 1, "slides": 2, "sheet": 2, "design": 2, "raw": 3,

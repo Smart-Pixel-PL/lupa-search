@@ -531,6 +531,27 @@ def cleanup_uninstaller(d: dict = Body(...)):
     return cleanup.open_uninstaller(str(d.get("path", "")))
 
 
+@app.get("/api/uninstall/apps")
+def uninstall_apps():
+    return cleanup.uninstall_targets()
+
+
+@app.get("/api/uninstall/plan")
+def uninstall_plan(path: str):
+    try:
+        return cleanup.uninstall_plan(path)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/uninstall/run")
+def uninstall_run(d: dict = Body(...)):
+    try:
+        return cleanup.uninstall_execute(str(d["app"]), [str(p) for p in d.get("paths", [])])
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
 @app.post("/api/cleanup/empty-trash")
 def cleanup_empty_trash():
     return cleanup.empty_trash()

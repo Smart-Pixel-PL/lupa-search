@@ -1,6 +1,6 @@
 # Lupa — specyfikacja aplikacji
 
-> Wersja 0.2.2 (beta) · październik 2026 · © Smart Pixel · licencja MIT
+> Wersja 0.3.0 (beta) · październik 2026 · © Smart Pixel · licencja MIT
 
 ## 1. Czym jest Lupa
 
@@ -239,6 +239,23 @@ Lupa nie wyrzuca samego pliku `.app`. Dla każdej aplikacji rozpoznaje **właśc
 Z listy „nieużywanych” wykluczane są aplikacje **uruchomione teraz**, **elementy logowania** i aplikacje startowane przez
 **LaunchAgents/LaunchDaemons**, bo działają w tle i nie są „otwierane”, a mimo to są używane. Otwartej aplikacji nie da się odinstalować:
 Lupa poprosi o jej zamknięcie.
+
+### Deinstalator (jak w Raycast)
+
+Przycisk **„🧩 Odinstaluj aplikację…”** w Porządkach (oraz „Odinstaluj…” przy każdej nieużywanej aplikacji) otwiera okno z **pełną listą
+plików aplikacji** — z polami wyboru, lokalizacją, rozmiarem, filtrem i sortowaniem — i przyciskiem **Odinstaluj aplikację** (↵).
+
+Lupa szuka plików po identyfikatorze aplikacji **i jego wariantach** (`com.vendor.app`, `com.vendor.app.Helper`, `.Updater`, `.Agent`…)
+oraz po dokładnej nazwie aplikacji, w:
+- `~/Library`: Application Support, Caches, Preferences (+ ByHost), Saved Application State, HTTPStorages, WebKit, Logs,
+  LaunchAgents, Application Scripts, Cookies, Containers (po identyfikatorze z metadanych), Group Containers;
+- **systemowo**: `/Library/LaunchDaemons`, `/Library/LaunchAgents`, `/Library/PrivilegedHelperTools`, `/Library/Application Support`,
+  `/Library/Caches`, `/Library/Preferences`, `/Library/Logs` (oraz pliki launchd, które uruchamiają tę aplikację).
+
+Pliki użytkownika trafiają do Kosza przez Findera („Odłóż” działa). Pliki systemowe są usuwane w **jednym kroku z hasłem
+administratora**: najpierw zatrzymywane są usługi w tle (`launchctl bootout`), potem pliki trafiają do Kosza użytkownika.
+Przykład: CleanMyMac X — 19 plików, 306 MB, w tym `LaunchDaemons` i `PrivilegedHelperTools`.
+Nie da się odinstalować aplikacji Apple ani samej Lupy; aplikacje Adobe są kierowane do Creative Cloud; otwarta aplikacja musi zostać zamknięta.
 
 ### Bezpieczeństwo usuwania
 - Nic nie jest kasowane: elementy trafiają do **Kosza przez Findera** (działa „Odłóż”). Miejsce zwalnia się po opróżnieniu Kosza

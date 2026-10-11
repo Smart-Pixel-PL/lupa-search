@@ -889,3 +889,186 @@ def periodic():
                f"Wolne {d['free'] / 1e9:.0f} GB ({d['free_pct']}%). Porządki znalazły {total / 1e9:.1f} GB do odzyskania.")
         meta_set(c, "cleanup_last_alert", time.time())
         c.commit()
+
+
+# ------------------------------------------------------------------ full uninstaller (Raycast-style)
+USER_LOCS = ["Application Support", "Caches", "Preferences", "Preferences/ByHost", "Saved Application State",
+             "HTTPStorages", "WebKit", "Logs", "LaunchAgents", "Application Scripts", "Cookies", "Containers",
+             "Group Containers"]
+SYSTEM_LOCS = ["/Library/LaunchDaemons", "/Library/LaunchAgents", "/Library/PrivilegedHelperTools",
+               "/Library/Application Support", "/Library/Caches", "/Library/Preferences", "/Library/Logs"]
+_PLANS: dict = {}
+
+
+def _belongs(name: str, bid: str, app_norm: str) -> bool:
+    """File/folder name belongs to the app: bundle id (or a sub-id like bid.Agent / bid.Updater) or exact app name."""
+    low = name.lower()
+    for suf in (".plist", ".savedstate", ".binarycookies", ".log"):
+        low = low.removesuffix(suf)
+    if bid and (low == bid or low.startswith(bid + ".") or low.startswith(bid + "-") or low.startswith(bid + "_")):
+        return True
+    return len(app_norm) >= 4 and _norm(low) == app_norm
+
+
+def _plist_refs_app(path: str, app: str) -> bool:
+    try:
+        with open(path, "rb") as f:
+            pl = plistlib.load(f)
+        args = " ".join(map(str, pl.get("ProgramArguments") or [pl.get("Program", "")]))
+        return app in args
+    except Exception:
+        return False
+
+
+def uninstall_targets():
+    """Every non-Apple app the user could uninstall (for the 'Odinstaluj aplikację…' picker)."""
+    ids, _ = installed_apps()
+    apps = sorted({a for a in ids.values()
+                   if a.startswith(("/Applications/", os.path.join(HOME, "Applications") + "/")) and a.count(".app") == 1})
+    out = []
+    for a in apps:
+        info = _app_info(a)
+        if info["bid"].startswith("com.apple.") or a == "/Applications/Lupa.app":
+            continue
+        out.append({"path": a, "name": os.path.basename(a)[:-4], "bid": info["bid"]})
+    return out
+
+
+def uninstall_plan(app: str) -> dict:
+    """List everything that belongs to an app — user and system level — like Raycast's uninstaller."""
+    app = os.path.abspath(app)
+    if not (app.endswith(".app") and os.path.isdir(app) and app.count(".app") == 1 and
+            app.startswith(("/Applications/", os.path.join(HOME, "Applications") + "/"))):
+        raise ValueError("to nie jest aplikacja z folderu Aplikacje")
+    info = _app_info(app)
+    bid, name = info["bid"], os.path.basename(app)[:-4]
+    if bid.startswith("com.apple.") or app == "/Applications/Lupa.app":
+        raise ValueError("aplikacji systemowych i samej Lupy nie odinstalowujemy")
+    app_norm = _norm(name)
+    found = []
+    for sub in USER_LOCS:
+        d = os.path.join(LIB, sub)
+        try:
+            names = os.listdir(d)
+        except OSError:
+            continue
+        for n in names:
+            p = os.path.join(d, n)
+            ok = _belongs(n, bid, app_norm)
+            if sub == "Containers" and not ok:
+                try:
+                    with open(os.path.join(p, ".com.apple.containermanager.metadata.plist"), "rb") as f:
+                        mid = (plistlib.load(f).get("MCMMetadataIdentifier") or "").lower()
+                    ok = bool(bid) and (mid == bid or mid.startswith(bid + "."))
+                except Exception:
+                    pass
+            if sub == "Group Containers" and not ok:
+                ok = bool(bid) and bid in n.lower()  # e.g. TEAMID.com.vendor.app
+            if sub == "LaunchAgents" and not ok:
+                ok = _plist_refs_app(p, app)
+            if ok and not _guard(p):
+                found.append((p, "user"))
+    for d in SYSTEM_LOCS:
+        try:
+            names = os.listdir(d)
+        except OSError:
+            continue
+        for n in names:
+            p = os.path.join(d, n)
+            ok = _belongs(n, bid, app_norm)
+            if not ok and d.endswith(("LaunchDaemons", "LaunchAgents")):
+                ok = _plist_refs_app(p, app)
+            if ok:
+                found.append((p, "system"))
+    sizes = _sizes([app] + [p for p, _ in found])
+    owner_ok = os.access(os.path.dirname(app), os.W_OK) and os.access(app, os.W_OK)
+    items = [{"path": app, "size": sizes.get(app, 0), "scope": "user" if owner_ok else "system", "is_app": True}]
+    items += [{"path": p, "size": sizes.get(p, 0), "scope": sc} for p, sc in found]
+    unin = _uninstaller(app, name)
+    warn = ""
+    if bid.startswith("com.adobe."):
+        warn = "adobe"
+    elif unin:
+        warn = "uninstaller"
+    plan = {"app": app, "name": name, "bid": bid, "items": items, "warn": warn, "uninstaller": unin,
+            "running": bid in _running_bundle_ids(), "total": sum(i["size"] for i in items),
+            "needs_admin": any(i["scope"] == "system" for i in items)}
+    _PLANS[app] = plan
+    return plan
+
+
+def _sh(s: str) -> str:
+    return "'" + s.replace("'", "'\\''") + "'"
+
+
+def uninstall_execute(app: str, selected: list[str]) -> dict:
+    """Trash the selected items of a plan. User files via Finder (Put Back works); system files in one
+    administrator-authorised step (launchd jobs are stopped first, files moved to the user's Trash)."""
+    plan = _PLANS.get(os.path.abspath(app)) or uninstall_plan(app)
+    if plan["warn"] == "adobe":
+        return {"ok": False, "error": "Aplikacje Adobe odinstaluj w Creative Cloud (Aplikacje → ⋯ → Odinstaluj)."}
+    if plan["bid"] in _running_bundle_ids():
+        return {"ok": False, "error": "Aplikacja jest otwarta — zamknij ją (⌘Q) i spróbuj ponownie."}
+    allowed = {i["path"]: i for i in plan["items"]}
+    sel = [p for p in selected if p in allowed]
+    user = [p for p in sel if allowed[p]["scope"] == "user"]
+    system = [p for p in sel if allowed[p]["scope"] == "system"]
+    results = {}
+    if system:
+        trash = os.path.join(HOME, ".Trash")
+        stamp = time.strftime("%H%M%S")
+        cmds = []
+        for p in system:
+            if p.endswith(".plist") and "/Launch" in p:
+                try:
+                    with open(p, "rb") as f:
+                        label = plistlib.load(f).get("Label") or os.path.basename(p)[:-6]
+                except Exception:
+                    label = os.path.basename(p)[:-6]
+                dom = "system" if "LaunchDaemons" in p else f"gui/{os.getuid()}"
+                cmds.append(f"launchctl bootout {dom}/{_sh(label)} 2>/dev/null")
+        for p in system:
+            dest = os.path.join(trash, os.path.basename(p))
+            if os.path.lexists(dest):
+                dest += f" {stamp}"
+            cmds.append(f"mv {_sh(p)} {_sh(dest)} && chown -R {os.getuid()} {_sh(dest)}")
+        script = "; ".join(cmds)
+        r = subprocess.run(["osascript", "-e",
+                            f'do shell script "{_as(script)}" with prompt "Lupa usuwa pliki systemowe aplikacji '
+                            f'{_as(plan["name"])}." with administrator privileges'],
+                           capture_output=True, text=True, timeout=600)
+        for p in system:
+            results[p] = "ok" if r.returncode == 0 and not os.path.lexists(p) else \
+                ("anulowano" if "-128" in r.stderr else (r.stderr.strip() or "nie udało się"))
+    # app bundle last among user items (data first, so nothing re-creates it)
+    user.sort(key=lambda p: p == plan["app"])
+    for i in range(0, len(user), 50):
+        part = user[i:i + 50]
+        lines = ['set out to ""']
+        for p in part:
+            lines += ["try", f'tell application "Finder" to delete (POSIX file "{_as(p)}" as alias)',
+                      'set out to out & "ok" & linefeed', "on error e", 'set out to out & "err:" & e & linefeed', "end try"]
+        lines.append("return out")
+        res = subprocess.run(["osascript", "-e", "\n".join(lines)], capture_output=True, text=True,
+                             timeout=600).stdout.splitlines()
+        for p, r in zip(part, res + ["err:brak odpowiedzi Findera"] * len(part)):
+            results[p] = "ok" if r == "ok" else r.removeprefix("err:")
+    freed = sum(allowed[p]["size"] for p, r in results.items() if r == "ok")
+    with open(LOG, "a") as log:
+        for p, r in results.items():
+            if r == "ok":
+                log.write(json.dumps({"t": time.time(), "path": p, "size": allowed[p]["size"],
+                                      "category": "uninstall", "app": plan["app"], "by": "user"}, ensure_ascii=False) + "\n")
+    _PLANS.pop(plan["app"], None)
+    # drop the app from the cached report
+    try:
+        rep = json.loads(REPORT.read_text())
+        for c in rep["categories"]:
+            c["items"] = [it for it in c["items"] if results.get(it["path"]) != "ok"]
+            c["count"] = len(c["items"])
+            c["total"] = sum(it["size"] for it in c["items"] if not it.get("keep"))
+        REPORT.write_text(json.dumps(rep, ensure_ascii=False))
+    except Exception:
+        pass
+    ok = all(r == "ok" for r in results.values()) and bool(results)
+    return {"ok": ok, "results": results, "freed": freed}

@@ -127,6 +127,7 @@
     <div class="cl-actions">
       <div class="cl-big"><small>Do odzyskania</small><b id="clTotal">—</b></div>
       <button id="clScan" class="cl-btn">↻ Skanuj teraz</button>
+      <button id="unOpen" class="cl-btn">🧩 Odinstaluj aplikację…</button>
       <div class="cl-meta" id="clMeta"></div>
     </div>
   </div>
@@ -143,6 +144,23 @@
     <button id="clDo" class="cl-btn primary">Przenieś do Kosza</button>
   </div>
 </section>
+
+<div id="unModal" class="un-modal" hidden>
+  <div class="un-box">
+    <div class="un-head">
+      <button class="un-back" id="unBack" title="Wstecz (Esc)">←</button>
+      <input id="unFilter" placeholder="Filtruj pliki i foldery po nazwie…" autocomplete="off">
+      <select id="unSort"><option value="size">Sortuj: rozmiar</option><option value="path">Sortuj: ścieżka</option></select>
+    </div>
+    <div class="un-sub" id="unSub"></div>
+    <div class="un-list" id="unList"></div>
+    <div class="un-warn" id="unWarn" hidden></div>
+    <div class="un-foot">
+      <span id="unTitle"></span><span class="spacer"></span>
+      <button id="unGo" class="un-go">Odinstaluj aplikację <kbd>↵</kbd></button>
+    </div>
+  </div>
+</div>
 
 <div id="drop" class="drop" hidden><div>Upuść obraz, aby znaleźć podobne pliki</div></div>
 <div id="menu" class="menu" hidden></div>

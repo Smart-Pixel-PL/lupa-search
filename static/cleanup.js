@@ -40,11 +40,14 @@ const UNINSTALL_BTN = { adobe: "Odinstaluj w Creative Cloud", uninstaller: "Odin
 function appDetails(i) {
   if (i.kind !== "app" || !i.method) return "";
   const relBytes = (i.related || []).reduce((a, r) => a + r.size, 0);
-  if (i.method !== "trash")
-    return `<div class="cl-un"><span class="pill warn">⚠︎ wymaga deinstalatora</span>
+  if (i.method === "adobe")
+    return `<div class="cl-un"><span class="pill warn">⚠︎ wymaga Creative Cloud</span>
       <button class="cl-mini" data-a="uninstall">${UNINSTALL_BTN[i.method]}</button></div>`;
+  if (i.method !== "trash")
+    return `<div class="cl-un"><button class="cl-mini danger" data-a="plan">🗑 Odinstaluj…</button>
+      <span class="pill warn">ma pliki systemowe — macOS poprosi o hasło</span></div>`;
   const open = CL.expanded?.has(i.path);
-  return `<div class="cl-un"><button class="cl-mini danger" data-a="uninstall-now">🗑 Odinstaluj</button><span class="pill ok">✓ pełne odinstalowanie</span>
+  return `<div class="cl-un"><button class="cl-mini danger" data-a="plan">🗑 Odinstaluj…</button><span class="pill ok">✓ pełne odinstalowanie</span>
     aplikacja ${fmtSize(i.app_size)} + dane ${fmtSize(relBytes)} (${(i.related || []).length} folderów)
     ${(i.related || []).length ? `<a class="cl-link" data-a="details">${open ? "ukryj" : "pokaż pliki"}</a>` : ""}</div>
     ${open ? `<ul class="cl-rel">${i.related.map(r => `<li><span>${esc(short(r.path))}</span><b>${fmtSize(r.size)}</b></li>`).join("")}</ul>` : ""}`;
@@ -140,6 +143,7 @@ $("#clCats").addEventListener("click", async e => {
     const a = e.target.closest("[data-a]")?.dataset.a;
     if (a === "reveal") return api("/api/cleanup/reveal", { method: "POST", json: { path: p } });
     if (a === "details") { CL.expanded = CL.expanded || new Set(); CL.expanded.has(p) ? CL.expanded.delete(p) : CL.expanded.add(p); return renderCleanup(); }
+    if (a === "plan") return openPlan(p);
     if (a === "uninstall-now") {
       const it = c.items.find(x => x.path === p); if (!it) return;
       const rel = it.related || [];
@@ -224,3 +228,104 @@ $("#clDo").addEventListener("click", async () => {
   if (tab === "clean") setTab("clean");
   try { const r = await api("/api/cleanup"); CL.rep = CL.rep || r; $("#cleanBadge").hidden = !r.disk.low; $("#cleanBadge").textContent = "!"; } catch {}
 })();
+
+
+// ---------------------------------------------------------------- Raycast-style uninstaller
+const UN = { mode: "apps", apps: [], plan: null, sel: new Set(), cur: 0 };
+const appIcon = p => `<img src="/api/cleanup/icon?path=${encodeURIComponent(p)}" onerror="this.outerHTML='<span class=ic>🧩</span>'">`;
+
+function unShow(on) { $("#unModal").hidden = !on; if (on) setTimeout(() => $("#unFilter").focus(), 30); }
+
+async function openPicker() {
+  UN.mode = "apps"; UN.plan = null; unShow(true);
+  $("#unFilter").value = ""; $("#unFilter").placeholder = "Szukaj aplikacji do odinstalowania…";
+  $("#unSort").hidden = true; $("#unBack").hidden = true; $("#unWarn").hidden = true;
+  $("#unSub").textContent = "Wczytuję aplikacje…"; $("#unList").innerHTML = ""; $("#unGo").hidden = true; $("#unTitle").textContent = "";
+  if (!UN.apps.length) UN.apps = await api("/api/uninstall/apps");
+  renderUn();
+}
+
+async function openPlan(path) {
+  UN.mode = "plan"; unShow(true);
+  $("#unFilter").value = ""; $("#unFilter").placeholder = "Filtruj pliki i foldery po nazwie…";
+  $("#unSort").hidden = false; $("#unBack").hidden = false; $("#unGo").hidden = false;
+  $("#unSub").innerHTML = `<span class="spin"></span> Szukam wszystkich plików aplikacji…`; $("#unList").innerHTML = "";
+  try { UN.plan = await api("/api/uninstall/plan?path=" + encodeURIComponent(path)); }
+  catch (e) { $("#unSub").textContent = "Błąd: " + e.message; return; }
+  UN.sel = new Set(UN.plan.items.map(i => i.path));
+  renderUn();
+}
+
+function renderUn() {
+  const f = $("#unFilter").value.trim().toLowerCase();
+  if (UN.mode === "apps") {
+    const list = UN.apps.filter(a => !f || a.name.toLowerCase().includes(f));
+    UN.cur = Math.min(UN.cur, Math.max(0, list.length - 1));
+    $("#unSub").textContent = `${list.length} aplikacji`;
+    $("#unList").innerHTML = list.map((a, k) => `<div class="un-row app ${k === UN.cur ? "cur" : ""}" data-app="${esc(a.path)}">
+      <div class="un-ic">${appIcon(a.path)}</div><div class="un-n"><b>${esc(a.name)}</b><span>${esc(short(a.path))}</span></div></div>`).join("");
+    return;
+  }
+  const pl = UN.plan; if (!pl) return;
+  let items = pl.items.filter(i => !f || i.path.toLowerCase().includes(f));
+  items = [...items].sort($("#unSort").value === "path" ? (a, b) => a.path.localeCompare(b.path) : (a, b) => b.size - a.size);
+  const selItems = pl.items.filter(i => UN.sel.has(i.path));
+  const selBytes = selItems.reduce((a, i) => a + i.size, 0);
+  $("#unSub").innerHTML = `<b>${pl.items.length}</b> plików · ${fmtSize(pl.total)}` +
+    (pl.needs_admin ? ` · <span class="pill warn">🔒 pliki systemowe — macOS poprosi o hasło</span>` : "");
+  $("#unList").innerHTML = items.map(i => {
+    const dir = short(i.path.slice(0, i.path.lastIndexOf("/"))) || "/";
+    const name = i.path.slice(i.path.lastIndexOf("/") + 1);
+    return `<label class="un-row" data-p="${esc(i.path)}">
+      <input type="checkbox" ${UN.sel.has(i.path) ? "checked" : ""} ${i.is_app ? "disabled title='Sama aplikacja — zawsze usuwana'" : ""}>
+      <div class="un-n"><b>${esc(name)}</b><span>${esc(dir)}</span></div>
+      ${i.scope === "system" ? `<span class="pill warn" title="Plik systemowy — wymaga hasła administratora">🔒 system</span>` : ""}
+      <span class="un-size">${fmtSize(i.size)}</span>
+      <span class="un-ic sm">${i.is_app ? appIcon(pl.app) : /\.(plist|binarycookies)$/.test(name) ? "📄" : "📁"}</span></label>`;
+  }).join("");
+  const warn = [];
+  if (pl.running) warn.push("Aplikacja jest teraz otwarta — zamknij ją (⌘Q) przed odinstalowaniem.");
+  if (pl.warn === "adobe") warn.push("To aplikacja Adobe — odinstaluj ją w Creative Cloud, żeby nie popsuć Creative Cloud.");
+  if (pl.warn === "uninstaller") warn.push("Producent dołączył własny deinstalator — możesz go użyć zamiast tego (przycisk w kategorii „Nieużywane aplikacje”).");
+  $("#unWarn").hidden = !warn.length; $("#unWarn").innerHTML = warn.map(esc).join("<br>");
+  $("#unTitle").innerHTML = `<span class="un-ic sm">${appIcon(pl.app)}</span> Odinstaluj <b>${esc(pl.name)}</b> · zaznaczono ${selItems.length} z ${pl.items.length} · ${fmtSize(selBytes)}`;
+  $("#unGo").disabled = pl.warn === "adobe" || pl.running;
+}
+
+async function runUninstall() {
+  const pl = UN.plan; if (!pl || $("#unGo").disabled) return;
+  const paths = pl.items.filter(i => UN.sel.has(i.path)).map(i => i.path);
+  if (!confirm(`Odinstalować ${pl.name}?\n\n${paths.length} plików (${fmtSize(pl.items.filter(i => UN.sel.has(i.path)).reduce((a, i) => a + i.size, 0))}) trafi do Kosza.` +
+    (pl.items.some(i => i.scope === "system" && UN.sel.has(i.path)) ? "\n\nmacOS poprosi o hasło administratora, żeby usunąć pliki systemowe (usługi w tle aplikacji zostaną zatrzymane)." : ""))) return;
+  $("#unGo").disabled = true; $("#unGo").textContent = "Odinstalowuję…";
+  try {
+    const r = await api("/api/uninstall/run", { method: "POST", json: { app: pl.app, paths } });
+    if (r.error) { toast(r.error, 6000); return; }
+    const bad = Object.entries(r.results || {}).filter(([, v]) => v !== "ok");
+    toast(bad.length ? `Odinstalowano częściowo (${fmtSize(r.freed)}). Pominięto ${bad.length}: ${bad[0][1]}`
+                     : `✓ Odinstalowano ${pl.name} — ${fmtSize(r.freed)} w Koszu`, 6000);
+    UN.apps = UN.apps.filter(a => a.path !== pl.app);
+    unShow(false); CL.lastScan = null; loadCleanup();
+  } catch (e) { toast("Błąd: " + e.message, 6000); }
+  finally { $("#unGo").disabled = false; $("#unGo").innerHTML = "Odinstaluj aplikację <kbd>↵</kbd>"; }
+}
+
+$("#unOpen").addEventListener("click", openPicker);
+$("#unBack").addEventListener("click", () => UN.apps.length ? openPicker() : unShow(false));
+$("#unFilter").addEventListener("input", () => { UN.cur = 0; renderUn(); });
+$("#unSort").addEventListener("change", renderUn);
+$("#unGo").addEventListener("click", runUninstall);
+$("#unModal").addEventListener("click", e => {
+  if (e.target.id === "unModal") return unShow(false);
+  const a = e.target.closest("[data-app]"); if (a) return openPlan(a.dataset.app);
+  const row = e.target.closest(".un-row[data-p]");
+  if (row && e.target.matches("input")) { e.target.checked ? UN.sel.add(row.dataset.p) : UN.sel.delete(row.dataset.p); renderUn(); }
+});
+$("#unModal").addEventListener("keydown", e => {
+  if (e.key === "Escape") { e.preventDefault(); UN.mode === "plan" && UN.apps.length ? openPicker() : unShow(false); }
+  else if (e.key === "Enter") { e.preventDefault(); if (UN.mode === "plan") runUninstall(); else { const r = $$(".un-row.app")[UN.cur]; if (r) openPlan(r.dataset.app); } }
+  else if (UN.mode === "apps" && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+    e.preventDefault(); const n = $$(".un-row.app").length; UN.cur = (UN.cur + (e.key === "ArrowDown" ? 1 : -1) + n) % Math.max(n, 1); renderUn();
+    $(".un-row.app.cur")?.scrollIntoView({ block: "nearest" });
+  }
+});

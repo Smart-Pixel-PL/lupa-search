@@ -35,7 +35,7 @@ function itemVisual(i) {
 }
 
 const canTrash = i => !i.keep && !(i.kind === "app" && i.method && i.method !== "trash");
-const UNINSTALL_BTN = { adobe: "Otwórz Creative Cloud", uninstaller: "Uruchom deinstalator", vendor: "Otwórz aplikację" };
+const UNINSTALL_BTN = { adobe: "Odinstaluj w Creative Cloud", uninstaller: "Odinstaluj (deinstalator producenta)", vendor: "Odinstaluj (otwórz aplikację)" };
 
 function appDetails(i) {
   if (i.kind !== "app" || !i.method) return "";
@@ -44,7 +44,7 @@ function appDetails(i) {
     return `<div class="cl-un"><span class="pill warn">⚠︎ wymaga deinstalatora</span>
       <button class="cl-mini" data-a="uninstall">${UNINSTALL_BTN[i.method]}</button></div>`;
   const open = CL.expanded?.has(i.path);
-  return `<div class="cl-un"><span class="pill ok">✓ pełne odinstalowanie</span>
+  return `<div class="cl-un"><button class="cl-mini danger" data-a="uninstall-now">🗑 Odinstaluj</button><span class="pill ok">✓ pełne odinstalowanie</span>
     aplikacja ${fmtSize(i.app_size)} + dane ${fmtSize(relBytes)} (${(i.related || []).length} folderów)
     ${(i.related || []).length ? `<a class="cl-link" data-a="details">${open ? "ukryj" : "pokaż pliki"}</a>` : ""}</div>
     ${open ? `<ul class="cl-rel">${i.related.map(r => `<li><span>${esc(short(r.path))}</span><b>${fmtSize(r.size)}</b></li>`).join("")}</ul>` : ""}`;
@@ -140,6 +140,25 @@ $("#clCats").addEventListener("click", async e => {
     const a = e.target.closest("[data-a]")?.dataset.a;
     if (a === "reveal") return api("/api/cleanup/reveal", { method: "POST", json: { path: p } });
     if (a === "details") { CL.expanded = CL.expanded || new Set(); CL.expanded.has(p) ? CL.expanded.delete(p) : CL.expanded.add(p); return renderCleanup(); }
+    if (a === "uninstall-now") {
+      const it = c.items.find(x => x.path === p); if (!it) return;
+      const rel = it.related || [];
+      const list = rel.slice(0, 12).map(r => `   • ${short(r.path)} (${fmtSize(r.size)})`).join("\n") + (rel.length > 12 ? `\n   • …i ${rel.length - 12} więcej` : "");
+      if (!confirm(`Odinstalować ${it.name.replace(/\.app$/, "")}?\n\nDo Kosza trafią:\n   • aplikacja (${fmtSize(it.app_size)})` +
+        (rel.length ? `\n${list}` : "") + `\n\nRazem ${fmtSize(it.size)}. Możesz to przywrócić z Kosza (Odłóż).\nAplikacja musi być zamknięta.`)) return;
+      const btn = e.target.closest("button"); btn.disabled = true; btn.textContent = "Odinstalowuję…";
+      try {
+        const r = await api("/api/cleanup/trash", { method: "POST", json: { paths: [p] } });
+        const res = r.results[p];
+        if (res === "ok") {
+          const bad = Object.entries(r.results).filter(([, v]) => v !== "ok").length;
+          toast(`✓ Odinstalowano ${it.name.replace(/\.app$/, "")} — ${fmtSize(r.freed)} w Koszu` +
+                (bad ? ` (${bad} plików pominięto)` : ""), 5000);
+          CL.sel.delete(p); CL.lastScan = null; loadCleanup();
+        } else { toast("Nie udało się: " + res, 6000); btn.disabled = false; btn.textContent = "🗑 Odinstaluj"; }
+      } catch (err) { toast("Błąd: " + err.message, 5000); btn.disabled = false; btn.textContent = "🗑 Odinstaluj"; }
+      return;
+    }
     if (a === "uninstall") {
       const r = await api("/api/cleanup/uninstaller", { method: "POST", json: { path: p } });
       return toast(r.ok ? "Otwieram — odinstaluj tam aplikację, potem kliknij „Skanuj teraz”" : "Nie udało się: " + r.error, 5000);

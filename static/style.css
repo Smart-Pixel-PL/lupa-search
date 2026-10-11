@@ -275,3 +275,5 @@ body.mode-clean .side, body.mode-clean main, body.mode-clean .preview { display:
 .cl-rel { margin: 4px 0 0; padding: 6px 10px; list-style: none; background: var(--panel2); border-radius: 8px; font-size: 11.5px; }
 .cl-rel li { display: flex; justify-content: space-between; gap: 10px; padding: 1px 0; color: var(--muted); }
 .cl-rel li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .cl-rel li b { color: var(--text); font-weight: 600; }
+.cl-mini.danger { background: #e5484d; border-color: #e5484d; color: #fff; }
+.cl-mini.danger:hover { background: #d13d42; } .cl-mini.danger:disabled { opacity: .6; }

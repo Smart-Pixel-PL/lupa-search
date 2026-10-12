@@ -87,6 +87,7 @@ def _bg_loop():
             _indexer_speed()
             _colors_job(c)
             _ocr_job(c)
+            _asr_job(c)
             if not _cleanup_busy.locked():  # weekly Porządki scan / low-space alert, off the main loop
                 threading.Thread(target=_cleanup_periodic, daemon=True).start()
             if came_back and not indexer_running():  # e.g. NAS mounted again
@@ -228,6 +229,24 @@ def _ocr_job(c):
     connect().execute("INSERT INTO meta(k,v) VALUES('ocr_last_run',?) ON CONFLICT(k) DO UPDATE SET v=excluded.v",
                       (time.time(),)).connection.commit()
     _start_job("lupa.ocr", "ocr.log")
+
+
+_asr_last = 0.0
+
+
+def _asr_job(c):
+    """Transcription needs the GPU like the indexer, so it only runs while the indexer is idle."""
+    global _asr_last
+    if (not CFG.get("transcribe", True) or _job_alive("transcribe") or indexer_running()
+            or (DATA / "pause").exists() or time.time() - _asr_last < 1800):
+        return
+    _asr_last = time.time()
+    try:
+        pending = c.execute("SELECT 1 FROM files WHERE kind IN ('audio','video') AND asr IS NULL AND size > 50000 LIMIT 1").fetchone()
+    except Exception:
+        pending = True  # column not created yet — the job creates it
+    if pending:
+        _start_job("lupa.transcribe", "transcribe.log")
 
 
 def _color_ids(p, c):
@@ -769,9 +788,10 @@ def _passage(c, fid, part):
     """The exact text chunk that the best-matching vector of this file was built from."""
     from .extract import chunks
     body = (c.execute("SELECT body FROM fts WHERE rowid=?", (fid,)).fetchone() or [""])[0] or ""
+    body, _, asr = body.partition("\n[TRANSKRYPCJA]\n")
     main, _, ocr = body.partition("\n[OCR]\n")
-    parts = chunks(main) if part < 10 else chunks(ocr)
-    k = part if part < 10 else part - 10
+    parts = chunks(main) if part < 10 else chunks(ocr) if part < 20 else chunks(asr)
+    k = part if part < 10 else part - 10 if part < 20 else part - 20
     return parts[k] if 0 <= k < len(parts) else (main or ocr)[:1800]
 
 
@@ -948,6 +968,16 @@ def _sample_thumbs(c, path):
     return [r[0] for r in c.execute("""SELECT id FROM files WHERE path >= ? AND path < ? AND thumb=1
                                        AND kind IN ('image','design') LIMIT 4""",
                                     (path + "/", path + "0"))]
+
+
+@app.get("/api/transcript/{fid}")
+def transcript(fid: int):
+    import json as _j
+    try:
+        r = db().execute("SELECT lang, segments FROM transcripts WHERE file_id=?", (fid,)).fetchone()
+    except Exception:
+        r = None
+    return {"lang": r[0], "segments": _j.loads(r[1])} if r else {"segments": []}
 
 
 @app.post("/api/open-folder")

@@ -214,6 +214,7 @@ async function openPreview(it) {
   renderPvTags(it);
   renderVersions(it);
   renderPvColors(it);
+  renderTranscript(it);
   const meta = [
     ["Typ", `${ICON[it.kind] || ""} ${(S.status?.labels || {})[it.kind] || it.kind} ${it.ext ? "(" + it.ext + ")" : ""}`],
     ["Rozmiar", fmtSize(it.size)],
@@ -410,6 +411,21 @@ function setColor(h) { S.color = S.color === h ? "" : h; renderColors(); if (S.c
 $("#colors").addEventListener("click", e => { const b = e.target.closest("[data-c]"); if (b) setColor(b.dataset.c); });
 $("#colors").addEventListener("change", e => { if (e.target.id === "colorPick") { S.color = ""; setColor(e.target.value); } });
 $("#colorClear").addEventListener("click", () => { S.color = ""; renderColors(); search(); });
+async function renderTranscript(it) {
+  const box = $("#pvAsr"); box.hidden = true;
+  if (it.kind !== "audio" && it.kind !== "video") return;
+  try {
+    const t = await api(`/api/transcript/${it.id}`);
+    if (!t.segments.length || S.pv?.id !== it.id) return;
+    box.innerHTML = `<div class="subh">🎙 Transkrypcja${t.lang ? " (" + esc(t.lang) + ")" : ""} — kliknij zdanie, by przewinąć</div>` +
+      t.segments.map(s => `<p data-t="${s.start}"><span>${fmtDur(s.start) || "0:00"}</span>${esc(s.text)}</p>`).join("");
+    box.hidden = false;
+    box.onclick = e => {
+      const p = e.target.closest("[data-t]"); if (!p) return;
+      const m = $("#pvMedia video, #pvMedia audio"); if (m) { m.currentTime = +p.dataset.t; m.play(); }
+    };
+  } catch {}
+}
 async function renderPvColors(it) {
   const box = $("#pvColors"); box.hidden = true;
   if (!["image", "design", "raw", "video", "pdf"].includes(it.kind)) return;

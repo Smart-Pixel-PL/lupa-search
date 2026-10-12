@@ -28,10 +28,10 @@ Wykreślamy po kolei: `- [x] ~~funkcja~~` = zrobione (z datą i wersją).
 - [x] ~~Wyszukiwanie po kolorze (paleta → pliki w danym kolorze)~~ — v0.5.0 (12.10.2026)
 
 ## 5. AI (lokalnie)
-- [ ] Pytania do dokumentów (Gemma 4 / Ollama) z odnośnikami do plików
-- [ ] OCR skanów (tekst ze zdjęć i skanów do wyszukiwania)
-- [ ] Transkrypcja nagrań audio i wideo (lokalny Whisper)
-- [ ] Podpowiedzi tagów
+- [x] ~~Pytania do dokumentów (Gemma 4 / Ollama) z odnośnikami do plików~~ — v0.6.0 — zakładka „✨ Zapytaj” (domyślnie gemma3:4b, Gemma 4 do włączenia: `ask_model`) (12.10.2026)
+- [x] ~~OCR skanów (tekst ze zdjęć i skanów do wyszukiwania)~~ — v0.6.0 — Apple Vision (pl), skany PDF + obrazy-dokumenty (12.10.2026)
+- [x] ~~Transkrypcja nagrań audio i wideo (lokalny Whisper)~~ — v0.6.0 — Whisper large-v3-turbo (MLX), uruchamiana po zakończeniu indeksowania (12.10.2026)
+- [x] ~~Podpowiedzi tagów~~ — v0.6.0 — uczone z Twoich tagów + „Znajdź pliki pasujące do tagu” (12.10.2026)
 
 ## 6. Wygoda i porządek
 - [ ] Mini okno wyszukiwania (⌥⌘L jak Spotlight)

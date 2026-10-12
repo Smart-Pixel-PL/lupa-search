@@ -42,6 +42,10 @@ Wpisz *„zdjęcie drużyny na sztucznej murawie”*, *„faktura za transport 2
 - 🎛️ **Filtry i sortowanie:** typ, format (PSD, TIFF, Affinity, AI, SVG), data, dysk, skróty folderów (Pobrane, Biurko, Dokumenty, iCloud Drive), tagi.
 - 🧹 **Porządki:** odzyskiwanie miejsca na dysku Maca. Lupa znajduje cache, logi, stare instalatory, resztki po odinstalowanych aplikacjach, identyczne duplikaty, nieużywane aplikacje i duże stare pliki, a zaznaczone przenosi do Kosza (zawsze da się je przywrócić).
 - 🗄️ **Obsługa NAS:** indeks i miniatury zostają lokalnie, więc przeglądanie działa nawet przy odłączonym dysku sieciowym.
+- ✨ **Zapytaj swoje pliki:** pytasz własnymi słowami, a lokalna Gemma (Ollama) odpowiada wyłącznie na podstawie Twoich dokumentów i podaje klikalne źródła.
+- 🔤 **OCR:** tekst ze skanów PDF, zrzutów ekranu i zdjęć dokumentów jest wyszukiwalny (Apple Vision, po polsku, na urządzeniu).
+- 🎙 **Transkrypcje:** mowa z nagrań i filmów jest przepisywana lokalnie (Whisper) i wyszukiwalna. Kliknięcie zdania przewija nagranie do tego miejsca.
+- 🏷 **Podpowiedzi tagów:** Lupa uczy się z Twoich tagów i proponuje je nowym plikom.
 - 🍏 **Natywna aplikacja:** ikona w Docku, skrót **⌥⌘L**, autostart, tryb jasny i ciemny.
 - ⌨️ **Skróty:** `/` szukaj · strzałki · `Spacja` podgląd · `Q` pełny ekran · `Enter` otwórz · `⌘Enter` pokaż w Finderze · `S` podobne · `T` taguj · `F` ulubione.
 

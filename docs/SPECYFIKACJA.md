@@ -1,6 +1,6 @@
 # Lupa — specyfikacja aplikacji
 
-> Wersja 0.5.0 (beta) · październik 2026 · © Smart Pixel · licencja MIT
+> Wersja 0.6.0 (beta) · październik 2026 · © Smart Pixel · licencja MIT
 
 ## 1. Czym jest Lupa
 
@@ -276,7 +276,16 @@ Nie da się odinstalować aplikacji Apple ani samej Lupy; aplikacje Adobe są ki
 
 Przykład z pierwszego uruchomienia (MacBook Pro, 460 GB, 7% wolnego): **~52 GB do odzyskania**, w tym ~27 GB w kategoriach bezpiecznych.
 
-## 10. Technologie
+## 10. AI lokalnie (v0.6)
+
+| Funkcja | Jak działa |
+|---|---|
+| **Zapytaj** | wyszukanie najlepszych fragmentów tekstu (także z OCR i transkrypcji) wektorami EmbeddingGemma 2 i słowami kluczowymi → odpowiedź modelu Gemma w Ollamie (`ask_model`, domyślnie `gemma3:4b`) strumieniowo, z numerami źródeł. Zabezpieczenie: pytania o konkretną nazwę lub numer (np. firmę, klub, numer faktury) dostają odpowiedź tylko z dokumentów, które ją zawierają (z uwzględnieniem odmiany); duplikaty dokumentów są pomijane; fragmenty źródeł są widoczne pod odpowiedzią. |
+| **OCR** | `tools/ocr.swift` (Apple Vision, `pl-PL`, Neural Engine, ~0,3 s/stronę). Kandydaci: skany PDF (brak warstwy tekstowej, do 3 stron) oraz obrazy podobne do „zeskanowanego dokumentu / zrzutu ekranu z tekstem” według wektorów Gemma (≥700 px, bez duplikatów). Tekst trafia do wyszukiwania pełnotekstowego i jako dodatkowe wektory. |
+| **Transkrypcja** | `lupa/transcribe.py`: Whisper large-v3-turbo (MLX), pierwsze 20 min nagrania, filtr ciszy/muzyki i typowych halucynacji; ~17× szybciej niż czas rzeczywisty na M2 Pro. Uruchamiana tylko, gdy indeksator nie pracuje (oba używają GPU). |
+| **Podpowiedzi tagów** | dla każdego tagu (≥2 pliki) średni wektor jego plików, osobno dla obrazów i dokumentów; plik dostaje propozycję, gdy jest co najmniej tak blisko jak typowy plik z tym tagiem. W menu tagu: „Znajdź pliki pasujące do tego tagu”. |
+
+## 11. Technologie
 
 | Warstwa | Technologia |
 |---|---|
@@ -288,7 +297,7 @@ Przykład z pierwszego uruchomienia (MacBook Pro, 460 GB, 7% wolnego): **~52 GB 
 | Interfejs | czysty HTML/CSS/JavaScript (bez frameworków i bez internetu) |
 | Aplikacja | Swift + AppKit + **WKWebView**, globalny skrót przez Carbon HotKey, podpis ad-hoc |
 
-## 11. Bezpieczeństwo i prywatność
+## 12. Bezpieczeństwo i prywatność
 
 - Serwer nasłuchuje wyłącznie na `localhost`; sprawdza nagłówek `Host` (ochrona przed DNS rebinding).
 - Akcje zmieniające stan (otwieranie plików, tagi) wymagają nagłówka `x-lupa` i właściwego `Origin`,
@@ -296,7 +305,7 @@ Przykład z pierwszego uruchomienia (MacBook Pro, 460 GB, 7% wolnego): **~52 GB 
 - Brak telemetrii; model ładowany offline (`local_files_only`).
 - Indeks nie usuwa wpisów z dysków offline ani z folderów, do których zabrakło uprawnień.
 
-## 12. Konfiguracja (`lupa.toml`)
+## 13. Konfiguracja (`lupa.toml`)
 
 | Klucz | Znaczenie | Domyślnie |
 |---|---|---|
@@ -313,7 +322,7 @@ Przykład z pierwszego uruchomienia (MacBook Pro, 460 GB, 7% wolnego): **~52 GB 
 
 Zmiana `dim` wymaga przebudowy indeksu (usunięcie `data/`).
 
-## 13. Zużycie zasobów (pomiar: MacBook Pro M2 Pro, 16 GB)
+## 14. Zużycie zasobów (pomiar: MacBook Pro M2 Pro, 16 GB)
 
 | Proces | RAM | Uwagi |
 |---|---|---|
@@ -322,7 +331,7 @@ Zmiana `dim` wymaga przebudowy indeksu (usunięcie `data/`).
 | Indeksator | ~3,3 GB (pomiar przy indeksowaniu nazw; zwalnia model podczas skanu NAS) | działa tylko podczas indeksowania, z niskim priorytetem |
 | Dysk | model 1,4 GB · środowisko 1,2 GB · indeks + miniatury ~1–2 GB (zależnie od liczby plików) | |
 
-## 14. Znane ograniczenia i plany
+## 15. Znane ograniczenia i plany
 
 - Pierwsza analiza treści dużych bibliotek trwa godzinami (obrazy ~3,7/s); NAS przez SMB jest wolniejszy.
 - Skany PDF są rozumiane wizualnie, bez OCR (planowany Tesseract).
@@ -330,7 +339,7 @@ Zmiana `dim` wymaga przebudowy indeksu (usunięcie `data/`).
 - Porządki: doradca Gemma 4 dla nieznanych folderów (planowane).
 - Aplikacja jest podpisana ad-hoc; po przebudowie macOS może poprosić o ponowne nadanie uprawnień.
 
-## 15. Źródła
+## 16. Źródła
 
 - [EmbeddingGemma 2 — Google Blog](https://blog.google/innovation-and-ai/technology/developers-tools/embeddinggemma-2/)
 - [EmbeddingGemma 2: The Developer Guide](https://developers.googleblog.com/embeddinggemma-2-the-developer-guide/)

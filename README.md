@@ -44,6 +44,10 @@ Type *"photo of a football team on artificial turf"*, *"invoice for transport 20
 - 🎛️ **Filters and sorting.** By type, format (PSD, TIFF, Affinity, AI, SVG…), date, drive, folder shortcuts (Downloads, Desktop, Documents, iCloud Drive) and tags. Sort by relevance, date, name, size or type.
 - 🧹 **Porządki: disk cleanup for your Mac.** Finds reclaimable space on the system disk (app caches, logs, old installers, leftovers of uninstalled apps, byte-identical duplicates, unused apps, big old files) and moves what you select to the Trash. More below.
 - 🗄️ **NAS-friendly.** Network drives are supported. The index and thumbnails stay local, so you can browse even when the NAS is offline, and Lupa re-indexes automatically when it comes back.
+- ✨ **Ask your files (local AI).** Ask a question in plain language and get an answer written by a local Gemma model in Ollama, based only on your documents, with numbered, clickable sources. A question about a specific name or number is answered only from documents that contain it.
+- 🔤 **OCR.** Text in scanned PDFs, screenshots and photos of documents becomes searchable (Apple Vision, on-device, Polish supported).
+- 🎙 **Transcripts.** Speech in audio and video is transcribed locally (Whisper large-v3-turbo on MLX) and searchable. Click a sentence to jump to that moment.
+- 🏷 **Tag suggestions.** Lupa learns from how you tag and suggests tags for new files, and can find all files that fit a tag.
 - 🍏 **Native Mac app.** Dock icon, global hotkey **⌥⌘L**, starts at login, light and dark mode.
 - ⌨️ **Keyboard-first.** `/` search · arrows navigate · `Space` preview · `Q` full screen · `Enter` open · `⌘Enter` reveal in Finder · `S` similar · `T` tag · `F` favorite.
 
@@ -174,7 +178,8 @@ Details (architecture, file types, performance, security) are in the [specificat
 - English UI and language switch
 - OCR for scans (Tesseract)
 - Duplicate detection
-- Porządki: local Gemma 4 adviser that explains unknown folders
+- Porządki: local Gemma adviser that explains unknown folders
+- Optional Gemma 4 for answers once indexing is done
 - Signed and notarized release builds
 
 ## License

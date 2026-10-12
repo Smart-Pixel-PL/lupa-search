@@ -362,11 +362,12 @@ body.mode-ask #results, body.mode-ask #more, body.mode-ask #empty, body.mode-ask
 .cite { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 4px; margin: 0 1px; border-radius: 6px; background: var(--accent-soft);
   color: var(--accent); font-size: 11px; font-weight: 700; cursor: pointer; vertical-align: 1px; }
 .ask-src { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 8px; margin-top: 14px; }
-.ask-s { border: 1px solid var(--line); border-radius: 10px; padding: 8px; cursor: pointer; transition: background .2s; }
+.ask-s { min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 10px; padding: 8px; cursor: pointer; transition: background .2s; }
 .ask-s:hover, .ask-s.flash { background: var(--accent-soft); }
-.ask-sh { display: grid; grid-template-columns: 18px 40px 1fr; gap: 8px; align-items: center; }
+.ask-sh { display: grid; grid-template-columns: 18px 40px minmax(0, 1fr); gap: 8px; align-items: center; }
 .ask-sh > b { color: var(--accent); } .ask-sh img, .ask-sh .ph { width: 40px; height: 40px; object-fit: cover; border-radius: 6px; font-size: 20px; display: grid; place-items: center; }
 .ask-sh .ph small { display: none; }
+.ask-sh > * { min-width: 0; }
 .ask-sh .nm { font-weight: 600; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ask-sh .fd { color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ask-p { color: var(--muted); font-size: 11.5px; margin-top: 6px; max-height: 64px; overflow: hidden; }

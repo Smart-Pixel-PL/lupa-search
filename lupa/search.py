@@ -108,6 +108,18 @@ class VectorIndex:
         best_rows = order[np.minimum.reduceat(pos, starts)]
         return cache["ufid"], best, best_rows
 
+    def visual_vectors(self, file_ids):
+        """First visual vector of each given file (for near-duplicate grouping) → {file_id: np.ndarray}."""
+        with self.lock:
+            fid, vt, mat = self.fid, self.vtype, self.mat
+        want = np.isin(fid, np.asarray(list(file_ids), np.int64)) & (vt == V_VISUAL)
+        out = {}
+        for r in np.flatnonzero(want):
+            f = int(fid[r])
+            if f not in out:
+                out[f] = mat[r].astype(np.float32)
+        return out
+
     def file_vector(self, file_id: int):
         with self.lock:
             m = self.fid == file_id

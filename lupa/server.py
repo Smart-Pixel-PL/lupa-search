@@ -7,6 +7,7 @@ import sys
 import threading
 import time
 import json
+import re
 
 import numpy as np
 from fastapi import Body, FastAPI, File, HTTPException, Request, UploadFile
@@ -120,7 +121,7 @@ def indexer_running():
 
 def start_indexer(force_crawl=False):
     global _indexer
-    if indexer_running():
+    if indexer_running() or (DATA / "pause").exists():  # data/pause = hold all indexing (e.g. while re-granting access)
         return False
     logf = open(DATA / "indexer.log", "a")
     # taskpolicy -b = macOS "background" QoS: efficiency cores + throttled disk I/O, so the indexer only
@@ -188,9 +189,11 @@ def _filters_sql(p):
     if p.get("minsize"):
         where.append("f.size >= ?")
         args.append(int(p["minsize"]))
-    if p.get("folder"):
-        where.append("f.path LIKE ? ESCAPE '\\'")
-        args.append(p["folder"].replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_").rstrip("/") + "/%")
+    if p.get("folder"):  # one or more folders, "|"-separated — each includes its subfolders
+        fs = [f.rstrip("/") for f in p["folder"].split("|") if f]
+        where.append("(" + " OR ".join("(f.path >= ? AND f.path < ?)" for _ in fs) + ")")
+        for f in fs:
+            args += [f + "/", f + "0"]  # '0' sorts right after '/': a fast range scan on the path index
     if p.get("tags"):
         for t in [int(x) for x in p["tags"].split(",") if x]:
             where.append("f.id IN (SELECT file_id FROM file_tags WHERE tag_id=?)")
@@ -273,8 +276,88 @@ def _fetch(c, ids, extra, p):
     for it in items:
         if it.get("part") is not None and it["kind"] == "video" and it.get("duration"):
             it["t"] = round(it["duration"] * FRAME_POS[min(it["part"], 3)], 1)
+    if p.get("group") == "1":
+        items = group_versions(items)
     off, lim = int(p.get("offset", 0)), int(p.get("limit", 120))
     return items[off:off + lim], len(items)
+
+
+# Version markers that never change *what* the file is: "(1)", "copy", "kopia", "final", "v2", "wersja 3"…
+_VER_WORD = re.compile(r"(?:\s*\(\d+\)|[\s_.\-]+(?:copy|kopia|final|finał|ostateczn\w*|popraw\w*|wersja\s*\d+|ver\d+|v\d+))$", re.I)
+# A trailing number only counts as a version when another number precedes it: tigra_66_01 → tigra_66,
+# but tigra_66 stays (66 is the design), and IMG_4482 stays (different photos).
+_VER_NUM = re.compile(r"(\d+[\s_.\-]+)\d{1,3}$")
+
+
+def _stem(name: str) -> str:
+    stem = name.rsplit(".", 1)[0].lower()
+    for _ in range(4):
+        new = _VER_WORD.sub("", stem)
+        new = _VER_NUM.sub(lambda m: m.group(1).rstrip(" _.-"), new)
+        if new == stem:
+            break
+        stem = new
+    return stem.strip(" _-.") or name.lower()
+
+
+VISUAL_KINDS = {"image", "design", "raw"}
+
+
+def group_versions(items):
+    """Collapse versions of one project into a single card: same folder + same name stem
+    (tigra_66_01.psd, tigra_66_02.png, tigra_66_final.jpg…) or visually near-identical images."""
+    n = len(items)
+    parent = list(range(n))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    def union(a, b):
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[max(ra, rb)] = min(ra, rb)  # keep the better-ranked item as the group head
+
+    seen = {}
+    for i, it in enumerate(items):
+        key = (it["folder"], _stem(it["name"]))
+        if key in seen:
+            union(seen[key], i)
+        else:
+            seen[key] = i
+    vis = [i for i, it in enumerate(items[:400]) if it["kind"] in VISUAL_KINDS]
+    vecs = vindex.visual_vectors([items[i]["id"] for i in vis])
+    vis = [i for i in vis if items[i]["id"] in vecs]
+    if len(vis) > 1:
+        # Only practically identical images (same picture resized / re-exported). Measured on 1 894 sublimation
+        # designs: different designs on one template still score ~0.88-0.97, so 0.99 keeps them apart.
+        # Star grouping (compare with the group head only) — no A≈B≈C chains swallowing whole collections.
+        m = np.stack([vecs[items[i]["id"]] for i in vis])
+        m /= np.linalg.norm(m, axis=1, keepdims=True) + 1e-9
+        sim = m @ m.T
+        taken = set()
+        for x in range(len(vis)):
+            if x in taken:
+                continue
+            for y in np.flatnonzero(sim[x] >= 0.99):
+                if y > x and y not in taken:
+                    union(vis[x], vis[y])
+                    taken.add(int(y))
+    groups = {}
+    for i in range(n):
+        groups.setdefault(find(i), []).append(i)
+    out = []
+    for head in sorted(groups):
+        members = groups[head]
+        it = dict(items[head])
+        if len(members) > 1:
+            it["versions"] = [{k: items[j].get(k) for k in ("id", "name", "path", "folder", "kind", "ext", "size",
+                                                              "mtime", "width", "height", "thumb", "offline", "tags")}
+                              for j in members]
+        out.append(it)
+    return out
 
 
 # ------------------------------------------------------------- API
@@ -309,6 +392,8 @@ def search(request: Request):
                          a + [lim, off]).fetchall()
         total = c.execute(f"SELECT count(*) FROM files f WHERE {w}", a).fetchone()[0]
         items = _rows_to_items(c, rows)
+        if p.get("group") == "1":
+            items = group_versions(items)  # per page when browsing
     return {"items": items, "total": total, "ms": int((time.time() - t0) * 1000), "query": q}
 
 
@@ -521,6 +606,139 @@ def index_stop():
         except (OSError, ValueError):
             pass
     return {"ok": True}
+
+
+# pinned folders ------------------------------------------------------------
+def _count_under(c, path):
+    return c.execute("SELECT count(*) FROM files WHERE path >= ? AND path < ?", (path + "/", path + "0")).fetchone()[0]
+
+
+@app.get("/api/pins")
+def pins():
+    c = db()
+    return [{**dict(r), "count": _count_under(c, r["path"]), "exists": os.path.isdir(r["path"])}
+            for r in c.execute("SELECT * FROM pins ORDER BY pos, id")]
+
+
+@app.post("/api/pins")
+def pin_add(d: dict = Body(...)):
+    path = os.path.abspath(os.path.expanduser(str(d.get("path", "")))).rstrip("/")
+    if not path or not os.path.isdir(path):
+        raise HTTPException(400, "to nie jest folder")
+    c = connect()
+    c.execute("INSERT OR IGNORE INTO pins(path,name,icon,pos) VALUES(?,?,?,(SELECT coalesce(max(pos),0)+1 FROM pins))",
+              (path, d.get("name") or os.path.basename(path), d.get("icon") or "📌"))
+    c.commit()
+    return {"ok": True, "path": path}
+
+
+@app.patch("/api/pins/{pid}")
+def pin_edit(pid: int, d: dict = Body(...)):
+    c = connect()
+    for k in ("name", "icon"):
+        if d.get(k):
+            c.execute(f"UPDATE pins SET {k}=? WHERE id=?", (str(d[k])[:60], pid))
+    c.commit()
+    return {"ok": True}
+
+
+@app.post("/api/pins/{pid}/reveal")
+def pin_reveal(pid: int):
+    r = db().execute("SELECT path FROM pins WHERE id=?", (pid,)).fetchone()
+    if not r:
+        raise HTTPException(404)
+    subprocess.Popen(["open", r[0]])
+    return {"ok": True}
+
+
+@app.delete("/api/pins/{pid}")
+def pin_delete(pid: int):
+    c = connect()
+    c.execute("DELETE FROM pins WHERE id=?", (pid,))
+    c.commit()
+    return {"ok": True}
+
+
+def _osascript(script: str, timeout=600):
+    r = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=timeout)
+    return r.stdout.strip(), r.returncode
+
+
+@app.post("/api/pick-folder")
+def pick_folder(d: dict = Body(default={})):
+    """Native macOS folder chooser (the web page can't see real paths)."""
+    prompt = str(d.get("prompt") or "Wybierz folder").replace('"', "'")
+    out, rc = _osascript(f'tell application "System Events" to activate\n'
+                         f'POSIX path of (choose folder with prompt "{prompt}")')
+    if rc != 0 or not out:
+        return {"path": None}
+    return {"path": out.rstrip("/")}
+
+
+@app.get("/api/folder-counts")
+def folder_counts(paths: str):
+    c = db()
+    return {p: _count_under(c, p.rstrip("/")) for p in paths.split("|") if p}
+
+
+# collect selected files ----------------------------------------------------
+def _paths_for(ids):
+    ids = [int(i) for i in ids][:5000]
+    if not ids:
+        return []
+    q = ",".join("?" * len(ids))
+    return [r[0] for r in db().execute(f"SELECT path FROM files WHERE id IN ({q})", ids)]
+
+
+def _unique(dest_dir, name):
+    base, ext = os.path.splitext(name)
+    cand, n = os.path.join(dest_dir, name), 2
+    while os.path.exists(cand):
+        cand = os.path.join(dest_dir, f"{base} ({n}){ext}")
+        n += 1
+    return cand
+
+
+@app.post("/api/collect/zip")
+def collect_zip(d: dict = Body(...)):
+    import zipfile
+    paths = [p for p in _paths_for(d.get("ids", [])) if os.path.isfile(p)]
+    if not paths:
+        raise HTTPException(400, "brak dostępnych plików (dysk offline?)")
+    dest = _unique(os.path.expanduser("~/Downloads"), f"Lupa {time.strftime('%Y-%m-%d %H.%M')}.zip")
+    used = set()
+    with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as z:
+        for p in paths:
+            arc = os.path.basename(p)
+            b, e = os.path.splitext(arc)
+            n = 2
+            while arc in used:
+                arc = f"{b} ({n}){e}"
+                n += 1
+            used.add(arc)
+            z.write(p, arc)
+    subprocess.Popen(["open", "-R", dest])
+    return {"ok": True, "path": dest, "count": len(paths), "size": os.path.getsize(dest)}
+
+
+@app.post("/api/collect/copy")
+def collect_copy(d: dict = Body(...)):
+    import shutil
+    dest_dir = str(d.get("dest") or "")
+    if not dest_dir:
+        dest_dir = pick_folder({"prompt": "Skopiuj zaznaczone pliki do…"})["path"]
+    if not dest_dir or not os.path.isdir(dest_dir):
+        return {"ok": False, "cancelled": True}
+    paths = _paths_for(d.get("ids", []))
+    done, failed = 0, []
+    for p in paths:
+        try:
+            shutil.copy2(p, _unique(dest_dir, os.path.basename(p)))
+            done += 1
+        except OSError as e:
+            failed.append(f"{os.path.basename(p)}: {e.strerror or e}")
+    subprocess.Popen(["open", dest_dir])
+    return {"ok": not failed, "dest": dest_dir, "count": done, "failed": failed[:5]}
 
 
 # Porządki (cleanup) --------------------------------------------------------

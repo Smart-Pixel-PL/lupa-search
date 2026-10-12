@@ -40,6 +40,7 @@
         <button data-v="list" title="Lista">☰</button>
       </div>
       <button id="fitBtn" class="iconbtn" title="Miniatury: wypełnij / dopasuj">⤢</button>
+      <button id="groupBtn" class="iconbtn" title="Grupuj wersje tego samego projektu i prawie identyczne obrazy">🗂</button>
     </div>
   </header>
 
@@ -60,8 +61,10 @@
       </div>
     </section>
     <section>
-      <h4>Gdzie</h4>
+      <h4>Gdzie <button id="addPin" class="mini" title="Przypnij folder">＋</button></h4>
       <div id="roots" class="list"></div>
+      <div id="pins" class="list"></div>
+      <div id="recentWrap" hidden><div class="subh">Ostatnio przeglądane</div><div id="recent" class="list"></div></div>
       <div id="folderFilter" class="folderfilter" hidden></div>
     </section>
     <section>
@@ -83,6 +86,8 @@
         <b id="selN"></b>
         <button id="selTag">🏷 Taguj</button>
         <button id="selFav">★ Ulubione</button>
+        <button id="selZip" title="Spakuj zaznaczone do ZIP (w Pobranych)">📦 ZIP</button>
+        <button id="selCopy" title="Skopiuj zaznaczone do wybranego folderu">📁 Kopiuj do…</button>
         <button id="selClear">✕</button>
       </span>
     </div>
@@ -103,7 +108,9 @@
         <button id="pvQL">Pełny ekran <kbd>Q</kbd></button>
         <button id="pvSim">Podobne <kbd>S</kbd></button>
         <button id="pvFolder">Ten folder</button>
+        <button id="pvPin" title="Przypnij folder tego pliku w sekcji Gdzie">📌 Przypnij folder</button>
       </div>
+      <div class="pvversions" id="pvVersions" hidden></div>
       <div class="pvtags" id="pvTags"></div>
       <dl class="pvmeta" id="pvMeta"></dl>
       <pre class="pvtext" id="pvText" hidden></pre>

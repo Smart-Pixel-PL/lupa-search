@@ -14,7 +14,7 @@ const store = {
 };
 
 const S = {
-  q: "", kinds: new Set(), exts: new Set(), since: "", roots: new Set(), folder: "", tags: new Set(), collection: null, similar: null,
+  q: "", kinds: new Set(), exts: new Set(), folders: new Set(), pins: [], group: store.get("group", false), since: "", roots: new Set(), folder: "", tags: new Set(), collection: null, similar: null,
   image: null, sort: "relevance", order: "desc",
   view: store.get("view", "grid"), fit: store.get("fit", false), zoom: store.get("zoom", 190),
   items: [], total: 0, loading: false, sel: new Set(), cur: -1, tagsList: [], cols: [], status: null, reqId: 0,
@@ -49,7 +49,8 @@ function params(extra = {}, forUrl = false) {
   if (S.exts.size) p.set("exts", [...S.exts].join(","));
   if (S.roots.size) p.set("roots", [...S.roots].join("|"));
   if (S.since) p.set("since", S.since);
-  if (S.folder) p.set("folder", S.folder);
+  if (S.folders.size) p.set("folder", [...S.folders].join("|"));
+  if (S.group) p.set("group", "1");
   if (S.tags.size) p.set("tags", [...S.tags].join(","));
   const browsing = !S.q && !S.collection && !S.similar && !S.image;
   // browsing without a query falls back to newest-first, but that implicit default never goes into the URL
@@ -131,10 +132,11 @@ function cardHtml(it, i) {
     .map(t => `<i style="background:${esc(t.color)}" title="${esc(t.name)}"></i>`).join("");
   const dims = it.width ? `${it.width}×${it.height}` : it.duration ? fmtDur(it.duration) : it.pages ? `${it.pages} str.` : "";
   const score = it.score != null ? `<div class="score" style="width:${Math.max(6, Math.min(100, (it.score - 1) * 22))}%"></div>` : "";
-  return `<div class="card${S.sel.has(it.id) ? " sel" : ""}" data-i="${i}" draggable="false">
+  return `<div class="card${S.sel.has(it.id) ? " sel" : ""}${it.versions ? " stack" : ""}" data-i="${i}" draggable="${NATIVE ? "false" : "true"}">
     <div class="th">${thumbHtml(it)}
       ${it.kind === "video" || it.kind === "audio" ? `<span class="badge">${ICON[it.kind]} ${fmtDur(it.duration)}</span>` : ""}
-      ${it.offline ? `<span class="badge r off" title="Dysk offline — miniatura z pamięci">offline</span>` : ""}
+      ${it.offline ? `<span class="badge r off" title="Dysk offline — miniatura z pamięci">offline</span>` :
+        it.versions ? `<span class="badge r ver" title="${esc(it.versions.map(v => v.name).join("\n"))}">+${it.versions.length - 1} wersji</span>` : ""}
       ${it.why ? `<span class="why">${esc(it.why)}${it.t != null ? " @" + fmtDur(it.t) : ""}</span>` : ""}
       <div class="tagdots">${tags}</div>${score}
     </div>
@@ -206,6 +208,7 @@ async function openPreview(it) {
   $("#pvName").textContent = it.name;
   $("#pvPath").textContent = it.path;
   renderPvTags(it);
+  renderVersions(it);
   const meta = [
     ["Typ", `${ICON[it.kind] || ""} ${(S.status?.labels || {})[it.kind] || it.kind} ${it.ext ? "(" + it.ext + ")" : ""}`],
     ["Rozmiar", fmtSize(it.size)],
@@ -246,6 +249,7 @@ const selectedIds = () => S.sel.size ? [...S.sel] : curItem() ? [curItem().id] :
 
 async function act(what, it = pvItem()) {
   if (!it) return;
+  noteFolder(it.folder);
   try {
     await api(`/api/action/${it.id}/${what}`, { method: "POST" });
     toast(what === "reveal" ? "Pokazuję w Finderze…" : "Otwieram…", 1200);
@@ -321,12 +325,15 @@ function renderRoots() {
   $("#roots").innerHTML = (S.status?.roots || []).map(r => `<button class="item ${S.roots.has(r.path) ? "on" : ""}" data-r="${esc(r.path)}">
     <span class="dot ${r.online ? "online" : "offline"}" title="${r.online ? "online" : "offline — wyniki z indeksu"}"></span>
     ${esc(r.path.split("/").pop() || r.path)}<span class="n">${r.count.toLocaleString("pl-PL")}</span></button>`).join("");
-  $("#roots").insertAdjacentHTML("beforeend", (S.status?.places || []).map(pl => `<button class="item ${S.folder === pl.path ? "on" : ""}" data-place="${esc(pl.path)}" title="${esc(pl.path)}">
+  $("#roots").insertAdjacentHTML("beforeend", (S.status?.places || []).map(pl => `<button class="item ${S.folders.has(pl.path) ? "on" : ""}" data-place="${esc(pl.path)}" title="${esc(pl.path)}">
     <span>${esc(pl.icon || "📁")}</span>${esc(pl.name)}<span class="n">${pl.count.toLocaleString("pl-PL")}</span></button>`).join(""));
-  const isPlace = (S.status?.places || []).some(pl => pl.path === S.folder);
+  const known = new Set([...(S.status?.places || []).map(p => p.path), ...S.pins.map(p => p.path)]);
+  const extra = [...S.folders].filter(f => !known.has(f));
   const ff = $("#folderFilter");
-  ff.hidden = !S.folder || isPlace;
-  ff.innerHTML = S.folder ? `📂 ${esc(S.folder)} ✕` : "";
+  ff.hidden = !extra.length;
+  ff.innerHTML = extra.map(f => `<div class="ffchip" title="${esc(f)}">📂 ${esc(f.split("/").pop())}
+    <a data-pinf="${esc(f)}" title="Przypnij">📌</a><a data-unf="${esc(f)}" title="Usuń filtr">✕</a></div>`).join("");
+  renderPins(); renderRecent();
 }
 
 function renderTags() {
@@ -379,6 +386,135 @@ async function loadStatus() {
 async function loadTags() { S.tagsList = await api("/api/tags"); renderTags(); }
 async function loadCols() { S.cols = await api("/api/collections"); renderCols(); }
 
+// ------------------------------------------------------------------ pinned & recent folders
+function toggleFolder(path, multi) {
+  if (multi) S.folders.has(path) ? S.folders.delete(path) : S.folders.add(path);
+  else { const only = S.folders.size === 1 && S.folders.has(path); S.folders.clear(); if (!only) S.folders.add(path); }
+  if (S.folders.has(path)) noteFolder(path);
+  renderRoots(); search();
+}
+function renderPins() {
+  $("#pins").innerHTML = S.pins.map(p => `<button class="item ${S.folders.has(p.path) ? "on" : ""} ${p.exists ? "" : "dim"}" data-pin="${esc(p.path)}" data-pid="${p.id}" title="${esc(p.path)}${p.exists ? "" : " (niedostępny)"}">
+    <span>${esc(p.icon || "📌")}</span>${esc(p.name)}<span class="n">${p.count.toLocaleString("pl-PL")}</span></button>`).join("");
+}
+async function loadPins() { try { S.pins = await api("/api/pins"); } catch { S.pins = []; } renderRoots(); }
+function noteFolder(path) {  // remember folders you browse (per device)
+  if (!path) return;
+  const r = store.get("recentFolders", {});
+  r[path] = { n: (r[path]?.n || 0) + 1, t: Date.now() };
+  const keep = Object.entries(r).sort((a, b) => b[1].t - a[1].t).slice(0, 30);
+  store.set("recentFolders", Object.fromEntries(keep));
+}
+let recentCounts = {};
+function renderRecent() {
+  const pinned = new Set([...S.pins.map(p => p.path), ...(S.status?.places || []).map(p => p.path)]);
+  const r = Object.entries(store.get("recentFolders", {})).filter(([p]) => !pinned.has(p))
+    .sort((a, b) => (b[1].n * 2 + b[1].t / 8.64e7) - (a[1].n * 2 + a[1].t / 8.64e7)).slice(0, 5);
+  $("#recentWrap").hidden = !r.length;
+  $("#recent").innerHTML = r.map(([p]) => `<button class="item ${S.folders.has(p) ? "on" : ""}" data-recent="${esc(p)}" title="${esc(p)}">
+    <span>🕘</span>${esc(p.split("/").pop() || p)}<span class="n">${recentCounts[p] != null ? recentCounts[p].toLocaleString("pl-PL") : ""}</span>
+    <span class="x" data-pinr="${esc(p)}" title="Przypnij">📌</span></button>`).join("");
+  const need = r.map(([p]) => p).filter(p => recentCounts[p] == null);
+  if (need.length) api("/api/folder-counts?paths=" + encodeURIComponent(need.join("|"))).then(c => { Object.assign(recentCounts, c); renderRecent(); }).catch(() => {});
+}
+async function pinFolder(path) {
+  if (!path) {
+    toast("Wybierz folder w oknie systemowym…", 2500);
+    path = (await api("/api/pick-folder", { method: "POST", json: { prompt: "Wybierz folder do przypięcia w Lupie" } })).path;
+    if (!path) return;
+  }
+  await api("/api/pins", { method: "POST", json: { path } });
+  toast(`📌 Przypięto: ${path.split("/").pop()}`); loadPins();
+}
+function pinMenu(x, y, pid) {
+  const pin = S.pins.find(p => p.id == pid); if (!pin) return;
+  const m = $("#menu");
+  m.innerHTML = `<button class="item" data-pa="rename">✏️ Zmień nazwę</button><button class="item" data-pa="icon">😀 Zmień ikonę</button>
+    <button class="item" data-pa="reveal">🔍 Pokaż w Finderze</button><button class="item" data-pa="unpin">✕ Odepnij</button>`;
+  m.style.left = Math.min(x, innerWidth - 220) + "px"; m.style.top = Math.min(y, innerHeight - 200) + "px"; m.hidden = false;
+  m.onclick = async e => {
+    const a = e.target.closest("[data-pa]")?.dataset.pa; if (!a) return; m.hidden = true;
+    if (a === "rename") { const n = prompt("Nazwa:", pin.name); if (n) await api(`/api/pins/${pid}`, { method: "PATCH", json: { name: n } }); }
+    if (a === "icon") { const n = prompt("Ikona (emoji):", pin.icon || "📌"); if (n) await api(`/api/pins/${pid}`, { method: "PATCH", json: { icon: n } }); }
+    if (a === "unpin") { await api(`/api/pins/${pid}`, { method: "DELETE" }); S.folders.delete(pin.path); search(); }
+    if (a === "reveal") return api(`/api/pins/${pid}/reveal`, { method: "POST" });
+    loadPins();
+  };
+}
+$("#addPin").addEventListener("click", () => pinFolder());
+$("#pins").addEventListener("click", e => { const b = e.target.closest("[data-pin]"); if (b) toggleFolder(b.dataset.pin, e.metaKey || e.shiftKey); });
+$("#pins").addEventListener("contextmenu", e => { const b = e.target.closest("[data-pid]"); if (!b) return; e.preventDefault(); pinMenu(e.clientX, e.clientY, b.dataset.pid); });
+$("#recent").addEventListener("click", e => {
+  const pr = e.target.closest("[data-pinr]"); if (pr) { e.stopPropagation(); return pinFolder(pr.dataset.pinr); }
+  const b = e.target.closest("[data-recent]"); if (b) toggleFolder(b.dataset.recent, e.metaKey || e.shiftKey);
+});
+$("#folderFilter").addEventListener("click", e => { const x = e.target.closest("[data-pinf]"); if (x) pinFolder(x.dataset.pinf); });
+
+// ------------------------------------------------------------------ collect selected files
+async function collect(kind) {
+  const ids = selectedIds(); if (!ids.length) return;
+  try {
+    if (kind === "zip") {
+      toast(`Pakuję ${ids.length} plików…`, 60000);
+      const r = await api("/api/collect/zip", { method: "POST", json: { ids } });
+      toast(`📦 Gotowe: ${r.count} plików, ${fmtSize(r.size)} → Pobrane`, 5000);
+    } else {
+      toast("Wybierz folder docelowy w oknie systemowym…", 4000);
+      const r = await api("/api/collect/copy", { method: "POST", json: { ids } });
+      if (r.cancelled) return toast("Anulowano");
+      toast(r.ok ? `📁 Skopiowano ${r.count} plików do „${r.dest.split("/").pop()}”` : `Skopiowano ${r.count}, błędy: ${r.failed.join("; ")}`, 6000);
+    }
+  } catch (e) { toast("Nie udało się: " + e.message, 5000); }
+}
+$("#selZip").addEventListener("click", () => collect("zip"));
+$("#selCopy").addEventListener("click", () => collect("copy"));
+
+// ------------------------------------------------------------------ versions (grouping)
+function applyGroupBtn() { $("#groupBtn").classList.toggle("on", S.group); }
+$("#groupBtn").addEventListener("click", () => {
+  S.group = !S.group; store.set("group", S.group); applyGroupBtn();
+  toast(S.group ? "🗂 Grupowanie wersji włączone" : "Grupowanie wersji wyłączone"); search();
+});
+function renderVersions(it) {
+  const v = it.versions || (S.items.find(x => x.versions?.some(y => y.id === it.id))?.versions);
+  const box = $("#pvVersions");
+  box.hidden = !v || v.length < 2;
+  if (box.hidden) return;
+  box.innerHTML = `<div class="subh">Wersje (${v.length})</div><div class="vstrip">${v.map(x => `<button class="vthumb ${x.id === it.id ? "on" : ""}" data-v="${x.id}" title="${esc(x.name)}">
+    ${THUMBABLE.has(x.kind) ? `<img loading="lazy" src="/api/thumb/${x.id}" onerror="this.replaceWith(Object.assign(document.createElement('span'),{textContent:'${ICON[x.kind] || "📁"}'}))">` : `<span>${ICON[x.kind] || "📁"}</span>`}
+    <small>${esc(x.name)}</small></button>`).join("")}</div>`;
+  box.onclick = e => {
+    const b = e.target.closest("[data-v]"); if (!b) return;
+    const x = v.find(y => y.id == b.dataset.v); if (!x) return;
+    openPreview({ ...x, versions: v, tags: x.tags || [] });
+  };
+}
+
+// ------------------------------------------------------------------ drag files out (Lupa.app → other apps)
+const NATIVE = !!window.webkit?.messageHandlers?.lupa;
+let dragStart = null;
+$("#results").addEventListener("mousedown", e => {
+  const c = e.target.closest(".card"); if (!c || e.button !== 0) return;
+  dragStart = { x: e.clientX, y: e.clientY, i: +c.dataset.i, sent: false };
+});
+addEventListener("mousemove", e => {
+  if (!dragStart || dragStart.sent || !NATIVE) return;
+  if (Math.hypot(e.clientX - dragStart.x, e.clientY - dragStart.y) < 8) return;
+  const it = S.items[dragStart.i]; if (!it || it.offline) return;
+  const ids = S.sel.has(it.id) ? [...S.sel] : [it.id];
+  const paths = S.items.filter(x => ids.includes(x.id)).map(x => x.path);
+  dragStart.sent = true;
+  window.webkit.messageHandlers.lupa.postMessage({ type: "drag", paths });
+});
+addEventListener("mouseup", () => { dragStart = null; });
+if (!NATIVE) {  // plain Chrome: drag a card to the desktop/Finder downloads the file
+  $("#results").addEventListener("dragstart", e => {
+    const c = e.target.closest(".card"); if (!c) return;
+    const it = S.items[+c.dataset.i];
+    e.dataTransfer.setData("DownloadURL", `application/octet-stream:${it.name}:${location.origin}/api/raw/${it.id}`);
+  });
+}
+
 // ------------------------------------------------------------------ events
 let qTimer;
 $("#q").addEventListener("input", e => {
@@ -422,11 +558,14 @@ $("#since").addEventListener("click", e => {
 });
 $("#roots").addEventListener("click", e => {
   const pl = e.target.closest("[data-place]");
-  if (pl) { S.folder = S.folder === pl.dataset.place ? "" : pl.dataset.place; renderRoots(); search(); return; }
+  if (pl) { toggleFolder(pl.dataset.place, e.metaKey || e.shiftKey); return; }
   const b = e.target.closest("[data-r]"); if (!b) return;
   const r = b.dataset.r; S.roots.has(r) ? S.roots.delete(r) : S.roots.add(r); renderRoots(); search();
 });
-$("#folderFilter").addEventListener("click", () => { S.folder = ""; renderRoots(); search(); });
+$("#folderFilter").addEventListener("click", e => {
+  const x = e.target.closest("[data-unf]"); if (!x) return;
+  S.folders.delete(x.dataset.unf); renderRoots(); search();
+});
 const TAG_COLORS = ["#ef5350", "#ff7043", "#ff9800", "#f5b301", "#cddc39", "#66bb6a", "#26a69a", "#29b6f6",
   "#42a5f5", "#5c6bc0", "#7e57c2", "#ab47bc", "#ec407a", "#8d6e63", "#78909c", "#e0e0e0"];
 function tagEditMenu(x, y, tid) {
@@ -520,7 +659,8 @@ $("#pvReveal").addEventListener("click", () => act("reveal"));
 $("#pvQL").addEventListener("click", () => openLightbox());
 $("#pvMedia").addEventListener("click", e => { if (e.target.tagName === "IMG") openLightbox(); });
 $("#pvSim").addEventListener("click", () => similar());
-$("#pvFolder").addEventListener("click", () => { const it = pvItem(); if (!it) return; resetMode(); S.q = ""; $("#q").value = ""; S.folder = it.folder; S.sort = "name"; S.order = "asc"; $("#sort").value = "name"; $("#order").textContent = "↑"; renderRoots(); search(); });
+$("#pvPin").addEventListener("click", () => { const it = pvItem(); if (it) pinFolder(it.folder); });
+$("#pvFolder").addEventListener("click", () => { const it = pvItem(); if (!it) return; resetMode(); S.q = ""; $("#q").value = ""; S.folders = new Set([it.folder]); noteFolder(it.folder); S.sort = "name"; S.order = "asc"; $("#sort").value = "name"; $("#order").textContent = "↑"; renderRoots(); search(); });
 $("#pvPath").addEventListener("click", () => { navigator.clipboard.writeText($("#pvPath").textContent).then(() => toast("Skopiowano ścieżkę")); });
 $("#pvTags").addEventListener("click", async e => {
   const it = pvItem(); const b = e.target.closest("button"); if (!b || !it) return;
@@ -629,11 +769,13 @@ addEventListener("focus", () => { if (!document.activeElement || document.active
   if (p.get("tags")) p.get("tags").split(",").forEach(t => S.tags.add(+t));
   if (p.get("collection")) S.collection = +p.get("collection");
   if (p.get("similar")) S.similar = +p.get("similar");
-  S.since = p.get("since") || ""; S.folder = p.get("folder") || "";
+  S.since = p.get("since") || "";
+  (p.get("folder") || "").split("|").filter(Boolean).forEach(f => S.folders.add(f));
   if (p.get("sort")) { S.sort = p.get("sort"); S.order = p.get("order") || "desc"; }
   $("#sort").value = S.sort; $("#order").textContent = S.order === "desc" ? "↓" : "↑";
   $$("#since button").forEach(b => b.classList.toggle("on", b.dataset.d === S.since));
   applyView();
-  Promise.all([loadTags(), loadCols()]).finally(loadStatus);
+  applyGroupBtn();
+  Promise.all([loadTags(), loadCols(), loadPins()]).finally(loadStatus);
   $("#q").focus();
 })();

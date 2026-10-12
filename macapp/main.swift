@@ -6,7 +6,8 @@ import Carbon.HIToolbox
 let serverURL = URL(string: "http://localhost:7766/")!
 let statusURL = URL(string: "http://localhost:7766/api/status")!
 
-final class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WKNavigationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WKNavigationDelegate,
+                         WKScriptMessageHandler, NSDraggingSource {
     var window: NSWindow!
     var web: WKWebView!
     var hotKeyRef: EventHotKeyRef?
@@ -14,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
     func applicationDidFinishLaunching(_ note: Notification) {
         buildMenu()
         let cfg = WKWebViewConfiguration()
+        cfg.userContentController.add(self, name: "lupa")  // page → app: start a native file drag
         cfg.mediaTypesRequiringUserActionForPlayback = []
         cfg.preferences.setValue(true, forKey: "developerExtrasEnabled")
         web = WKWebView(frame: .zero, configuration: cfg)
@@ -38,6 +40,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
         window.isReleasedWhenClosed = false
         window.makeKeyAndOrderFront(nil)
 
+        // remember the last mouse event so a drag requested by the page can start from it
+        NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged]) { [weak self] e in
+            self?.lastMouse = e
+            return e
+        }
         showLoading()
         ensureServer()
         registerHotKey()
@@ -51,6 +58,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
         web.evaluateJavaScript("var q=document.getElementById('q'); if(q){q.focus(); q.select();}")
+    }
+
+    // MARK: drag files out (thumbnail → Finder, Mail, Slack, Affinity…)
+    var lastMouse: NSEvent?
+
+    func userContentController(_ uc: WKUserContentController, didReceive msg: WKScriptMessage) {
+        guard let body = msg.body as? [String: Any], body["type"] as? String == "drag",
+              let paths = body["paths"] as? [String], let ev = lastMouse ?? NSApp.currentEvent else { return }
+        let loc = web.convert(ev.locationInWindow, from: nil)
+        var items: [NSDraggingItem] = []
+        for (k, p) in paths.prefix(100).enumerated() where FileManager.default.fileExists(atPath: p) {
+            let item = NSDraggingItem(pasteboardWriter: URL(fileURLWithPath: p) as NSURL)
+            let icon = NSWorkspace.shared.icon(forFile: p)
+            icon.size = NSSize(width: 64, height: 64)
+            let off = CGFloat(min(k, 4)) * 6  // small fan for multiple files
+            item.setDraggingFrame(NSRect(x: loc.x - 32 + off, y: loc.y - 32 - off, width: 64, height: 64), contents: icon)
+            items.append(item)
+        }
+        if !items.isEmpty {
+            web.beginDraggingSession(with: items, event: ev, source: self)
+        }
+    }
+
+    func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
+        context == .outsideApplication ? [.copy] : []
     }
 
     // MARK: server

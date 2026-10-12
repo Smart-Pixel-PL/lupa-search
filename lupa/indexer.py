@@ -501,7 +501,8 @@ def main():
                        WHERE ext='.af' AND kind!='design'""")
         # network hiccups (NAS dropped for a moment) are not broken files — queue them again
         n = con.execute("""UPDATE files SET stage=1, error=NULL WHERE stage=-1 AND (error LIKE '%Device not configured%'
-                           OR error LIKE '%timed out%' OR error LIKE '%Resource busy%' OR error LIKE '%Errno 60%')""").rowcount
+                           OR error LIKE '%timed out%' OR error LIKE '%Resource busy%' OR error LIKE '%Errno 60%'
+                           OR error LIKE '%Operation not permitted%' OR error LIKE '%Permission denied%')""").rowcount
         if n:
             log(f"{n} plików z chwilowym błędem sieci wraca do kolejki")
         if NAME_ONLY_ON_NETWORK:

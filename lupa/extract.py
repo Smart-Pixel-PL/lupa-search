@@ -303,16 +303,15 @@ def quick_thumb(path: str, kind: str):
         return video_frame(path, dur * 0.08 if dur > 4 else 0.0, px=THUMB_PX * 2)
     if kind == "pdf":
         import fitz
-        PDF_LOCK.acquire()
-        doc = fitz.open(path)
-        try:
-            p = doc[0]
-            zoom = THUMB_PX * 1.5 / max(p.rect.width, p.rect.height, 1)
-            pix = p.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
-            return Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
-        finally:
-            doc.close()
-            PDF_LOCK.release()
+        with PDF_LOCK:  # released even if the file can't be opened
+            doc = fitz.open(path)
+            try:
+                p = doc[0]
+                zoom = THUMB_PX * 1.5 / max(p.rect.width, p.rect.height, 1)
+                pix = p.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
+                return Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+            finally:
+                doc.close()
     return None
 
 

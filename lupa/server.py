@@ -453,6 +453,15 @@ def search(request: Request):
             q = r["query"]
             if r["kinds"] and not p.get("kinds"):
                 p["kinds"] = r["kinds"]
+    if p.get("like_tag"):
+        t = _tag_centroids(c).get(int(p["like_tag"]))
+        if not t:
+            raise HTTPException(404, "tag ma za mało plików, żeby się z niego uczyć (min. 2)")
+        tagged = [r[0] for r in c.execute("SELECT file_id FROM file_tags WHERE tag_id=?", (int(p["like_tag"]),))]
+        ids, extra = _rank(c, t["vec"], p)
+        ids = [i for i in ids if i not in set(tagged)]
+        items, total = _fetch(c, ids, extra, p)
+        return {"items": items, "total": total, "ms": int((time.time() - t0) * 1000), "query": f"🏷 pasuje do: {t['name']}"}
     if p.get("similar"):
         fv = vindex.file_vector(int(p["similar"]))
         if fv is None:
@@ -581,6 +590,57 @@ def action(fid: int, what: str):
         raise HTTPException(400)
     subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return {"ok": True}
+
+
+# tag suggestions (learned from how you already tag) -----------------------------
+_tag_cent: dict = {"t": 0, "data": {}}
+
+
+def _tag_centroids(c):
+    """Per tag and per vector kind (visual / text): mean vector of its files and how close its own files
+    are to it. Images are compared with images and documents with documents — the spaces differ."""
+    if time.time() - _tag_cent["t"] < 60:
+        return _tag_cent["data"]
+    out = {}
+    for t in c.execute("SELECT t.id, t.name, t.color FROM tags t"):
+        fids = [r[0] for r in c.execute("SELECT file_id FROM file_tags WHERE tag_id=?", (t["id"],))]
+        groups = {}
+        for f in fids[:500]:
+            fv = vindex.file_vector(f)
+            if fv is not None:
+                groups.setdefault("visual" if 2 in fv[1] else "text", []).append(fv[0])
+        kinds = {}
+        for k, vs in groups.items():
+            if len(vs) < 2:
+                continue
+            m = np.stack(vs)
+            cen = m.mean(0)
+            cen /= np.linalg.norm(cen) or 1
+            kinds[k] = {"vec": cen, "floor": float(np.percentile(m @ cen, 10)) - 0.02, "n": len(vs)}
+        if kinds:
+            best = max(kinds.values(), key=lambda x: x["n"])
+            out[t["id"]] = {"name": t["name"], "color": t["color"], "kinds": kinds, "vec": best["vec"]}
+    _tag_cent.update(t=time.time(), data=out)
+    return out
+
+
+@app.get("/api/suggest-tags/{fid}")
+def suggest_tags(fid: int):
+    c = db()
+    fv = vindex.file_vector(fid)
+    if fv is None:
+        return []
+    kind = "visual" if 2 in fv[1] else "text"
+    have = {r[0] for r in c.execute("SELECT tag_id FROM file_tags WHERE file_id=?", (fid,))}
+    out = []
+    for tid, t in _tag_centroids(c).items():
+        k = t["kinds"].get(kind)
+        if tid in have or not k:
+            continue
+        sim = float(fv[0] @ k["vec"])
+        if sim >= max(0.55, k["floor"]):  # about as close as the files you already tagged
+            out.append({"id": tid, "name": t["name"], "color": t["color"], "sim": round(sim, 3)})
+    return sorted(out, key=lambda x: -x["sim"])[:3]
 
 
 # tags -------------------------------------------------------------------

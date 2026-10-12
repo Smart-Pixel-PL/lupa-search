@@ -46,6 +46,7 @@ function params(extra = {}, forUrl = false) {
   if (S.q && !S.collection) p.set("q", S.q);
   if (S.collection) p.set("collection", S.collection);
   if (S.similar) p.set("similar", S.similar);
+  if (S.likeTag) p.set("like_tag", S.likeTag);
   if (S.kinds.size) p.set("kinds", [...S.kinds].join(","));
   if (S.exts.size) p.set("exts", [...S.exts].join(","));
   if (S.roots.size) p.set("roots", [...S.roots].join("|"));
@@ -55,7 +56,7 @@ function params(extra = {}, forUrl = false) {
   if (S.color) p.set("color", S.color.replace("#", ""));
   if (S.browse != null && S.browse !== "" && !S.q) { p.set("folder", S.browse); p.set("direct", "1"); }
   if (S.tags.size) p.set("tags", [...S.tags].join(","));
-  const browsing = !S.q && !S.collection && !S.similar && !S.image && !S.color;
+  const browsing = !S.q && !S.collection && !S.similar && !S.image && !S.color && !S.likeTag;
   // browsing without a query falls back to newest-first, but that implicit default never goes into the URL
   const sort = S.sort === "relevance" && browsing && !forUrl ? "mtime" : S.sort;
   if (sort !== "relevance") { p.set("sort", sort); p.set("order", S.order); }
@@ -105,11 +106,11 @@ async function search(reset = true) {
 
 function renderInfo(r) {
   const n = S.total;
-  let what = S.image ? "Podobne do obrazu" : S.similar ? "Podobne pliki" :
+  let what = S.likeTag ? (r.query || "Pasujące do tagu") : S.image ? "Podobne do obrazu" : S.similar ? "Podobne pliki" :
     S.collection ? "Kolekcja: " + (S.cols.find(c => c.id == S.collection)?.name || "") : S.q ? "Wyniki" : "Przeglądanie";
   $("#count").innerHTML = `${esc(what)} · <b>${n.toLocaleString("pl-PL")}</b> ${n === 1 ? "plik" : "plików"}` +
     (r.ms ? ` · ${r.ms} ms` : "") +
-    (S.similar || S.image || S.collection ? ` · <a href="#" id="clearMode">wyczyść</a>` : "");
+    (S.similar || S.image || S.collection || S.likeTag ? ` · <a href="#" id="clearMode">wyczyść</a>` : "");
   $("#clearMode")?.addEventListener("click", e => { e.preventDefault(); resetMode(); search(); });
   $("#more").textContent = S.items.length < S.total ? "" : (n ? "— koniec —" : "");
   const empty = $("#empty");
@@ -119,7 +120,7 @@ function renderInfo(r) {
     "<b>Nic nie znalazłem</b>Spróbuj opisać inaczej, zdejmij filtry albo przeciągnij podobny obraz.";
 }
 
-function resetMode() { S.similar = null; S.image = null; S.collection = null; renderCols(); }
+function resetMode() { S.similar = null; S.image = null; S.collection = null; S.likeTag = null; renderCols(); }
 
 // ------------------------------------------------------------------ cards
 function thumbHtml(it, big = false) {
@@ -237,7 +238,12 @@ async function openPreview(it) {
 function renderPvTags(it) {
   $("#pvTags").innerHTML = S.tagsList.map(t => `<button data-t="${t.id}" class="${it.tags.includes(t.id) ? "on" : ""}">
     <span class="dot" style="background:${esc(t.color)}"></span>${esc(t.name)}</button>`).join("") +
-    `<button data-t="new">＋ tag</button>`;
+    `<button data-t="new">＋ tag</button><span id="pvSugg"></span>`;
+  api(`/api/suggest-tags/${it.id}`).then(sg => {
+    if (S.pv?.id !== it.id || !sg.length) return;
+    $("#pvSugg").innerHTML = `<span class="sugg-l">✨ Sugerowane:</span>` + sg.map(t =>
+      `<button data-t="${t.id}" class="sugg" title="Podobny do plików z tym tagiem (${Math.round(t.sim * 100)}%)">＋ <span class="dot" style="background:${esc(t.color)}"></span>${esc(t.name)}</button>`).join("");
+  }).catch(() => {});
 }
 
 function closePreview() {
@@ -719,6 +725,7 @@ function tagEditMenu(x, y, tid) {
   const m = $("#menu");
   m.innerHTML = `<div class="swatches">${TAG_COLORS.map(c => `<button data-c="${c}" style="background:${c}" class="${c === t.color ? "on" : ""}" title="${c}"></button>`).join("")}
     <label class="custom" title="Własny kolor"><input type="color" value="${esc(t.color)}">🎨</label></div>
+    <button class="item" data-a="like">✨ Znajdź pliki pasujące do tego tagu</button>
     <button class="item" data-a="rename">✏️ Zmień nazwę</button>
     ${tid !== 1 ? `<button class="item" data-a="delete">🗑 Usuń tag</button>` : ""}`;
   m.style.left = Math.min(x, innerWidth - 240) + "px"; m.style.top = Math.min(y, innerHeight - 220) + "px";
@@ -729,6 +736,7 @@ function tagEditMenu(x, y, tid) {
     const sw = e.target.closest("[data-c]");
     if (sw) { await setColor(sw.dataset.c); m.hidden = true; return; }
     const a = e.target.closest("[data-a]")?.dataset.a;
+    if (a === "like") { m.hidden = true; resetMode(); S.q = ""; $("#q").value = ""; S.likeTag = tid; S.sort = "relevance"; $("#sort").value = "relevance"; return search(); }
     if (a === "rename") { const n = prompt("Nowa nazwa tagu:", t.name); if (n) { await api(`/api/tags/${tid}`, { method: "PATCH", json: { name: n } }); loadTags(); } m.hidden = true; }
     if (a === "delete" && confirm(`Usunąć tag „${t.name}”? (pliki zostaną, zniknie tylko etykieta)`)) {
       await api(`/api/tags/${tid}`, { method: "DELETE" }); S.tags.delete(tid); m.hidden = true; await loadTags(); search();

@@ -444,6 +444,9 @@ function renderBrowse(d) {
 }
 function setTabSearch(tab) {  // search ↔ browse share the same grid, preview and filters
   document.body.classList.toggle("mode-browse", tab === "browse");
+  document.body.classList.toggle("mode-ask", tab === "ask");
+  $("#askView").hidden = tab !== "ask";
+  if (tab === "ask") { S.browse = null; renderBrowse(null); renderRoots(); setTimeout(() => $("#askQ").focus(), 30); return; }
   if (tab === "browse") browseTo(S.browse || ""); else { S.browse = null; renderBrowse(null); renderRoots(); search(); }
 }
 $("#crumbs").addEventListener("click", e => { const a = e.target.closest("[data-b]"); if (a) browseTo(a.dataset.b); });
@@ -455,6 +458,64 @@ $("#bUp").addEventListener("click", () => {
 });
 $("#bPin").addEventListener("click", () => S.browse && pinFolder(S.browse));
 $("#bFinder").addEventListener("click", () => S.browse && api("/api/open-folder", { method: "POST", json: { path: S.browse } }));
+
+// ------------------------------------------------------------------ ask your files (local Gemma)
+const ASK_EX = ["Ile kosztowała oferta dla Ostrovii?", "Jakie są warunki płatności w umowach zlecenia?",
+  "Kiedy odbywa się turniej Z Orlika na Stadion?", "Jakie faktury wystawiła firma w sierpniu?"];
+$("#askEx").innerHTML = ASK_EX.map(q => `<button>${esc(q)}</button>`).join("");
+$("#askEx").addEventListener("click", e => { const b = e.target.closest("button"); if (b) { $("#askQ").value = b.textContent; askRun(); } });
+function askFilters() {
+  const p = params({}, true);
+  const f = {};
+  for (const k of ["kinds", "exts", "roots", "since", "folder", "tags"]) if (p.get(k)) f[k] = p.get(k);
+  return f;
+}
+function askFormat(text, srcs) {
+  let h = esc(text).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/^\s*[*-] /gm, "• ").replace(/\n/g, "<br>");
+  return h.replace(/\[(\d+(?:\s*,\s*\d+)*)\]/g, (m, nums) => nums.split(",").map(n => {
+    const k = +n.trim(); return k >= 1 && k <= srcs.length ? `<a class="cite" data-n="${k}">${k}</a>` : "";
+  }).join(""));
+}
+async function askRun() {
+  const q = $("#askQ").value.trim(); if (!q) return;
+  $("#askQ").value = ""; $("#askIntro").hidden = true;
+  const box = document.createElement("div"); box.className = "ask-turn";
+  box.innerHTML = `<div class="ask-q">${esc(q)}</div><div class="ask-a"><span class="spin"></span> Szukam w Twoich plikach…</div><div class="ask-src"></div>`;
+  $("#askThread").prepend(box);
+  const A = $(".ask-a", box), SRC = $(".ask-src", box);
+  let srcs = [], text = "";
+  try {
+    const r = await fetch("/api/ask", { method: "POST", headers: { "x-lupa": "1", "content-type": "application/json" },
+      body: JSON.stringify({ q, filters: askFilters() }) });
+    const rd = r.body.getReader(); const dec = new TextDecoder(); let buf = "";
+    for (;;) {
+      const { value, done } = await rd.read(); if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let nl;
+      while ((nl = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, nl); buf = buf.slice(nl + 1); if (!line.trim()) continue;
+        const m = JSON.parse(line);
+        if (m.type === "sources") {
+          srcs = m.sources; box._srcs = srcs;
+          A.innerHTML = srcs.length ? `<span class="spin"></span> Czytam ${srcs.length} dokumentów (${esc(m.model)})…` : "";
+          SRC.innerHTML = srcs.map(s => `<div class="ask-s" data-n="${s.n}">
+            <div class="ask-sh"><b>${s.n}</b>${thumbHtml(s)}<div><div class="nm">${esc(s.name)}</div><div class="fd">${esc(s.folder)}</div></div></div>
+            <div class="ask-p">${esc(s.passage || "")}</div></div>`).join("");
+        } else if (m.type === "token") { text += m.t; A.innerHTML = askFormat(text, srcs); }
+        else if (m.type === "error") { A.innerHTML = `<span class="err">${esc(m.error)}</span>`; }
+      }
+    }
+  } catch (e) { A.innerHTML = `<span class="err">Błąd: ${esc(e.message)}</span>`; }
+}
+$("#askForm").addEventListener("submit", e => { e.preventDefault(); askRun(); });
+$("#askQ").addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); askRun(); } });
+$("#askThread").addEventListener("click", e => {
+  const el = e.target.closest("[data-n]"); if (!el) return;
+  const turn = e.target.closest(".ask-turn"); const s = turn?._srcs?.find(x => x.n == el.dataset.n);
+  if (!s) return;
+  if (e.target.closest(".cite")) { const card = turn.querySelector(`.ask-s[data-n="${s.n}"]`); card?.scrollIntoView({ block: "nearest", behavior: "smooth" }); card?.classList.add("flash"); setTimeout(() => card?.classList.remove("flash"), 900); }
+  openPreview({ ...s, tags: s.tags || [] });
+});
 
 // ------------------------------------------------------------------ pinned & recent folders
 function toggleFolder(path, multi) {

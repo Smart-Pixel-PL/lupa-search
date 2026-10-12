@@ -13,6 +13,7 @@ function setTab(tab) {
   $("#clean").hidden = tab !== "clean";
   try { localStorage.setItem("lupa.tab", tab); } catch {}
   if (tab === "clean") loadCleanup(); else if (tab === "search") $("#q").focus();
+  try { localStorage.setItem("lupa.tab", tab); } catch {}
 }
 $("#tabs").addEventListener("click", e => { const b = e.target.closest("button"); if (b) setTab(b.dataset.tab); });
 

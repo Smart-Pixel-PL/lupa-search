@@ -86,6 +86,7 @@ def _bg_loop():
             last = float(meta_get(c, "last_index", "0") or 0)
             _indexer_speed()
             _colors_job(c)
+            _ocr_job(c)
             if not _cleanup_busy.locked():  # weekly Porządki scan / low-space alert, off the main loop
                 threading.Thread(target=_cleanup_periodic, daemon=True).start()
             if came_back and not indexer_running():  # e.g. NAS mounted again
@@ -192,6 +193,41 @@ def _colors_job(c):
         prefix = ["nice", "-n", "10"] if _on_ac() else ["taskpolicy", "-b"]
         subprocess.Popen(prefix + [sys.executable, "-m", "lupa.colors"], cwd=PROJECT,
                          stdout=open(DATA / "colors.log", "a"), stderr=subprocess.STDOUT, start_new_session=True)
+
+
+def _job_alive(name):
+    pidf = DATA / f"{name}.pid"
+    if not pidf.exists():
+        return False
+    try:
+        os.kill(int(pidf.read_text()), 0)
+        return True
+    except (OSError, ValueError):
+        pidf.unlink(missing_ok=True)
+        return False
+
+
+def _start_job(module, log):
+    prefix = ["nice", "-n", "10"] if _on_ac() else ["taskpolicy", "-b"]
+    subprocess.Popen(prefix + [sys.executable, "-m", module], cwd=PROJECT, stdout=open(DATA / log, "a"),
+                     stderr=subprocess.STDOUT, start_new_session=True)
+
+
+_ocr_last = 0.0
+
+
+def _ocr_job(c):
+    """OCR of scans/screenshots: at most every 12 h (new scans are picked up then)."""
+    global _ocr_last
+    if not CFG.get("ocr", True) or _job_alive("ocr") or time.time() - _ocr_last < 1800:
+        return
+    _ocr_last = time.time()
+    last = float(meta_get(c, "ocr_last_run", "0") or 0)
+    if time.time() - last < 12 * 3600:
+        return
+    connect().execute("INSERT INTO meta(k,v) VALUES('ocr_last_run',?) ON CONFLICT(k) DO UPDATE SET v=excluded.v",
+                      (time.time(),)).connection.commit()
+    _start_job("lupa.ocr", "ocr.log")
 
 
 def _color_ids(p, c):
@@ -660,6 +696,140 @@ def index_stop():
         except (OSError, ValueError):
             pass
     return {"ok": True}
+
+
+# ask your documents (RAG with a local Gemma via Ollama) ---------------------
+ASK_SYSTEM = ("Jesteś asystentem wyszukiwarki plików Lupa. Odpowiadasz po polsku, zwięźle i konkretnie, WYŁĄCZNIE na "
+              "podstawie podanych fragmentów dokumentów użytkownika. Po każdej informacji podaj numer źródła w nawiasie "
+              "kwadratowym, np. [2]. Jeśli fragmenty nie zawierają odpowiedzi, napisz wprost: „Nie znalazłem tego w Twoich "
+              "plikach” i podpowiedz, jak inaczej zapytać. Nie wymyślaj liczb, nazw, dat ani kwot.")
+
+
+def _passage(c, fid, part):
+    """The exact text chunk that the best-matching vector of this file was built from."""
+    from .extract import chunks
+    body = (c.execute("SELECT body FROM fts WHERE rowid=?", (fid,)).fetchone() or [""])[0] or ""
+    main, _, ocr = body.partition("\n[OCR]\n")
+    parts = chunks(main) if part < 10 else chunks(ocr)
+    k = part if part < 10 else part - 10
+    return parts[k] if 0 <= k < len(parts) else (main or ocr)[:1800]
+
+
+_GENERIC = {"nip", "vat", "pdf", "regon", "krs", "pesel", "faktura", "umowa", "oferta", "pln", "zł", "pl", "jpg",
+            "png", "psd", "ul", "sp", "zoo", "z", "o", "jaki", "jaka", "jakie", "kto", "gdzie", "kiedy", "ile", "czy"}
+
+
+def _fold(t: str) -> str:
+    import unicodedata
+    t = unicodedata.normalize("NFKD", (t or "").lower())
+    return "".join(ch for ch in t if not unicodedata.combining(ch)).replace("ł", "l")
+
+
+def _salient(q: str):
+    """Specific names/numbers in a question (AUTO-LESZEK, Ostrovia, 12/2025): words with capitals after the
+    first word, ALL-CAPS words, or tokens with digits — minus generic words like NIP, VAT, faktura."""
+    toks = re.findall(r"[\w][\w\-./]*", q, re.UNICODE)
+    out = []
+    for k, t in enumerate(toks):
+        f = _fold(t)
+        if len(f) < 3 or f in _GENERIC:
+            continue
+        if any(ch.isdigit() for ch in t):
+            out.append(f)  # numbers must match exactly
+        elif (t.isupper() and len(t) >= 3) or (k > 0 and t[0].isupper()):
+            out.append(f[:max(4, len(f) - 2)])  # Polish inflection: Ostrovii ~ Ostrovia, Zinie ~ Zina
+    return list(dict.fromkeys(out))
+
+
+@app.post("/api/ask")
+def ask(request: Request, d: dict = Body(...)):
+    import json as _j
+    import urllib.request
+    from fastapi.responses import StreamingResponse
+    from .common import V_TEXT
+    question = str(d.get("q", "")).strip()[:500]
+    if not question:
+        raise HTTPException(400, "puste pytanie")
+    p = {k: str(v) for k, v in (d.get("filters") or {}).items() if v}
+    c = db()
+    allowed = None
+    if _has_filters(p):
+        w, a = _filters_sql(p)
+        allowed = np.fromiter((r[0] for r in c.execute(f"SELECT f.id FROM files f WHERE {w}", a)), np.int64)
+    fids, z, rows = vindex.score(emb().query(question), allowed, vtypes={V_TEXT})
+    hits = keyword_hits(c, question)
+    if hits and len(fids):
+        pos = {int(f): i for i, f in enumerate(fids)}
+        for f, b in hits.items():
+            i = pos.get(f)
+            if i is not None and z[i] > -8:
+                z[i] += b * 0.5
+    top = [i for i in np.argsort(-z)[:40] if z[i] > 1.8]
+    names = _salient(question)
+    cands, seen = [], set()
+    for i in top:
+        fid, row = int(fids[i]), int(rows[i])
+        r = c.execute("SELECT * FROM files f WHERE id=?", (fid,)).fetchone()
+        if r:
+            text = _passage(c, fid, int(vindex.part[row]))
+            key = (r["name"], r["size"]) if r["size"] else text[:300]
+            if key in seen or text[:300] in seen:  # the same document copied to several folders
+                continue
+            seen.update({key, text[:300]})
+            if len(cands) >= 10:
+                break
+            hay = _fold(r["name"] + " " + r["path"] + " " + text)
+            cands.append((r, text, sum(n in hay for n in names)))
+    missing = []
+    if names:
+        # a question about a specific name/number must be answered from documents that contain it
+        best = max((m for _, _, m in cands), default=0)
+        if best == 0:
+            missing = names
+        cands = [x for x in cands if x[2] == best] if best else []
+    srcs, ctx = [], []
+    for r, text, _ in cands[:6]:
+        item = _rows_to_items(c, [r])[0]
+        item["n"] = len(srcs) + 1
+        item["passage"] = text[:700]
+        srcs.append(item)
+        ctx.append(f"[{item['n']}] plik: {r['name']} (folder: {os.path.basename(os.path.dirname(r['path']))})\n{text}")
+    model = CFG.get("ask_model", "gemma3:4b")
+
+    def gen():
+        yield _j.dumps({"type": "sources", "sources": srcs, "model": model}, ensure_ascii=False) + "\n"
+        if not srcs:
+            msg = ("Nie znalazłem w Twoich plikach dokumentów, które zawierają: " + ", ".join(missing).upper() + "."
+                   if missing else "Nie znalazłem w Twoich plikach dokumentów pasujących do pytania.")
+            msg += " Jeśli to skan, może jeszcze czekać na OCR — spróbuj później albo zapytaj inaczej."
+            yield _j.dumps({"type": "token", "t": msg}, ensure_ascii=False) + "\n"
+            yield '{"type":"done"}\n'
+            return
+        body = _j.dumps({"model": model, "stream": True, "keep_alive": "5m",
+                         "options": {"temperature": 0.2, "num_ctx": 8192},
+                         "messages": [{"role": "system", "content": ASK_SYSTEM},
+                                      {"role": "user", "content": f"Pytanie: {question}\n\nFragmenty dokumentów "
+                                                                  f"(używaj tylko numerów źródeł od 1 do {len(srcs)}):\n\n"
+                                                                  + "\n\n".join(ctx)}]}).encode()
+        req = urllib.request.Request("http://localhost:11434/api/chat", data=body,
+                                     headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=300) as resp:
+                for line in resp:
+                    if not line.strip():
+                        continue
+                    m = _j.loads(line)
+                    t = (m.get("message") or {}).get("content", "")
+                    if t:
+                        yield _j.dumps({"type": "token", "t": t}, ensure_ascii=False) + "\n"
+                    if m.get("done"):
+                        break
+        except Exception as e:  # noqa: BLE001
+            yield _j.dumps({"type": "error", "error": f"Ollama nie odpowiada ({e}). Uruchom aplikację Ollama."},
+                           ensure_ascii=False) + "\n"
+        yield '{"type":"done"}\n'
+
+    return StreamingResponse(gen(), media_type="application/x-ndjson")
 
 
 # folder browser --------------------------------------------------------------

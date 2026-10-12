@@ -159,6 +159,8 @@ def connect(readonly=False) -> sqlite3.Connection:
         cols = {r[1] for r in con.execute("PRAGMA table_info(files)")}
         if "colors" not in cols:  # v0.5: dominant colours per file (JSON) for colour search
             con.execute("ALTER TABLE files ADD COLUMN colors TEXT")
+        if "ocr" not in cols:  # v0.6: 1 = OCR text added, -1 = nothing readable
+            con.execute("ALTER TABLE files ADD COLUMN ocr INTEGER")
         if con.execute("SELECT count(*) FROM collections").fetchone()[0] == 0:
             con.executemany("INSERT INTO collections(name,query,kinds,icon,pos) VALUES(?,?,?,?,?)",
                             [(*c, i) for i, c in enumerate(DEFAULT_COLLECTIONS)])

@@ -14,6 +14,7 @@
     <nav class="tabs" id="tabs">
       <button data-tab="search" class="on">Szukaj</button>
       <button data-tab="browse">Przeglądaj</button>
+      <button data-tab="ask">✨ Zapytaj</button>
       <button data-tab="clean">Porządki <i id="cleanBadge" hidden></i></button>
     </nav>
     <div class="searchbox">
@@ -84,6 +85,19 @@
   </aside>
 
   <main id="main">
+    <div class="askview" id="askView" hidden>
+      <div class="ask-intro" id="askIntro">
+        <h2>✨ Zapytaj swoje pliki</h2>
+        <p>Odpowiedź powstaje lokalnie (Gemma w Ollamie) wyłącznie na podstawie Twoich dokumentów — z numerami źródeł.
+           Filtry z lewej (folder, typ, data) zawężają, w czym szukam.</p>
+        <div class="ask-ex" id="askEx"></div>
+      </div>
+      <div class="ask-thread" id="askThread"></div>
+      <form class="ask-form" id="askForm">
+        <textarea id="askQ" rows="1" placeholder="np. Ile kosztowała oferta dla Ostrovii?  (Enter — wyślij, Shift+Enter — nowa linia)"></textarea>
+        <button class="primary" id="askGo">Zapytaj</button>
+      </form>
+    </div>
     <div class="browsebar" id="browseBar" hidden>
       <button id="bUp" class="iconbtn" title="Folder wyżej (⌘↑)">↑</button>
       <div class="crumbs" id="crumbs"></div>

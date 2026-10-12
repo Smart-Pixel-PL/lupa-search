@@ -5,10 +5,18 @@ import Carbon.HIToolbox
 
 let serverURL = URL(string: "http://localhost:7766/")!
 let statusURL = URL(string: "http://localhost:7766/api/status")!
+let miniURL = URL(string: "http://localhost:7766/mini.html")!
+
+// Borderless floating panel that can take keyboard focus without activating the app (like Spotlight).
+final class KeyPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+}
 
 final class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WKNavigationDelegate,
-                         WKScriptMessageHandler, NSDraggingSource {
+                         WKScriptMessageHandler, NSDraggingSource, NSWindowDelegate {
     var window: NSWindow!
+    var mini: KeyPanel?
+    var miniWeb: WKWebView?
     var web: WKWebView!
     var hotKeyRef: EventHotKeyRef?
 
@@ -64,9 +72,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
     var lastMouse: NSEvent?
 
     func userContentController(_ uc: WKUserContentController, didReceive msg: WKScriptMessage) {
-        guard let body = msg.body as? [String: Any], body["type"] as? String == "drag",
+        guard let body = msg.body as? [String: Any] else { return }
+        switch body["type"] as? String {
+        case "mini-hide": hideMini(); return
+        case "mini-size": if let h = body["h"] as? Double { sizeMini(CGFloat(h)) }; return
+        case "mini-main": openMainWithQuery(body["q"] as? String ?? ""); return
+        default: break
+        }
+        guard body["type"] as? String == "drag", let view = msg.webView,
               let paths = body["paths"] as? [String], let ev = lastMouse ?? NSApp.currentEvent else { return }
-        let loc = web.convert(ev.locationInWindow, from: nil)
+        let loc = view.convert(ev.locationInWindow, from: nil)
         var items: [NSDraggingItem] = []
         for (k, p) in paths.prefix(100).enumerated() where FileManager.default.fileExists(atPath: p) {
             let item = NSDraggingItem(pasteboardWriter: URL(fileURLWithPath: p) as NSURL)
@@ -77,7 +92,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
             items.append(item)
         }
         if !items.isEmpty {
-            web.beginDraggingSession(with: items, event: ev, source: self)
+            view.beginDraggingSession(with: items, event: ev, source: self)
         }
     }
 
@@ -151,8 +166,84 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
         RegisterEventHotKey(UInt32(kVK_ANSI_L), UInt32(cmdKey | optionKey), id, GetApplicationEventTarget(), 0, &hotKeyRef)
     }
 
+    // ⌥⌘L toggles the mini search panel; the Dock icon / ⌘O in the panel open the full window.
     func toggle() {
-        if NSApp.isActive && window.isVisible { NSApp.hide(nil) } else { showWindow() }
+        if let m = mini, m.isVisible { hideMini() } else { showMini() }
+    }
+
+    // MARK: mini search panel (Spotlight-like)
+    let miniWidth: CGFloat = 720
+
+    func buildMini() {
+        let cfg = WKWebViewConfiguration()
+        cfg.userContentController.add(self, name: "lupa")
+        let w = WKWebView(frame: .zero, configuration: cfg)
+        w.setValue(false, forKey: "drawsBackground")
+        w.navigationDelegate = self
+        let p = KeyPanel(contentRect: NSRect(x: 0, y: 0, width: miniWidth, height: 60),
+                         styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        p.level = .floating
+        p.isFloatingPanel = true
+        p.hidesOnDeactivate = false
+        p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
+        p.isMovableByWindowBackground = true
+        p.backgroundColor = .clear
+        p.isOpaque = false
+        p.hasShadow = true
+        p.delegate = self
+        let fx = NSVisualEffectView()
+        fx.material = .popover
+        fx.blendingMode = .behindWindow
+        fx.state = .active
+        fx.wantsLayer = true
+        fx.layer?.cornerRadius = 14
+        fx.layer?.masksToBounds = true
+        w.translatesAutoresizingMaskIntoConstraints = false
+        fx.addSubview(w)
+        NSLayoutConstraint.activate([w.leadingAnchor.constraint(equalTo: fx.leadingAnchor), w.trailingAnchor.constraint(equalTo: fx.trailingAnchor),
+                                     w.topAnchor.constraint(equalTo: fx.topAnchor), w.bottomAnchor.constraint(equalTo: fx.bottomAnchor)])
+        p.contentView = fx
+        w.load(URLRequest(url: miniURL))
+        mini = p
+        miniWeb = w
+    }
+
+    func showMini() {
+        if mini == nil { buildMini() }
+        guard let p = mini else { return }
+        // on the screen with the mouse, at the height Spotlight uses
+        let mouse = NSEvent.mouseLocation
+        let scr = NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) } ?? NSScreen.main!
+        let v = scr.visibleFrame
+        let h = p.frame.height
+        p.setFrame(NSRect(x: v.midX - miniWidth / 2, y: v.maxY - v.height * 0.22 - h, width: miniWidth, height: h), display: true)
+        p.makeKeyAndOrderFront(nil)
+        miniWeb?.evaluateJavaScript("window.miniShow && window.miniShow()")
+    }
+
+    func hideMini() { mini?.orderOut(nil) }
+
+    func sizeMini(_ h: CGFloat) {
+        guard let p = mini else { return }
+        let f = p.frame
+        let nh = min(max(h, 58), 620)
+        if abs(nh - f.height) < 1 { return }
+        p.setFrame(NSRect(x: f.minX, y: f.maxY - nh, width: f.width, height: nh), display: true)  // grow downwards
+    }
+
+    func windowDidResignKey(_ n: Notification) {
+        if (n.object as? NSWindow) === mini { hideMini() }  // click elsewhere → panel goes away, like Spotlight
+    }
+
+    func openMainWithQuery(_ q: String) {
+        hideMini()
+        showWindow()
+        let js = (try? JSONSerialization.data(withJSONObject: [q], options: [])).flatMap { String(data: $0, encoding: .utf8) } ?? "[\"\"]"
+        web.evaluateJavaScript("""
+            (function(q){ var e=document.getElementById('q'); if(!e||!q) return;
+              var t=document.querySelector('#tabs [data-tab=search]'); if(t) t.click();
+              e.value=q; e.dispatchEvent(new Event('input',{bubbles:true})); })(\(js)[0])
+            """)
     }
 
     // MARK: JS dialogs (prompt/confirm/alert) and file picker
@@ -179,6 +270,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
         h(.allow)
     }
     func webView(_ w: WKWebView, didFailProvisionalNavigation n: WKNavigation!, withError e: Error) {
+        if w === miniWeb { DispatchQueue.main.asyncAfter(deadline: .now() + 1) { w.load(URLRequest(url: miniURL)) }; return }
         showLoading(); DispatchQueue.main.asyncAfter(deadline: .now() + 1) { self.ensureServer() }
     }
     func webViewWebContentProcessDidTerminate(_ w: WKWebView) { w.reload() }
@@ -198,11 +290,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
         add("Edycja", [mi("Cofnij", Selector(("undo:")), "z"), mi("Ponów", Selector(("redo:")), "Z"), .separator(),
                        mi("Wytnij", #selector(NSText.cut(_:)), "x"), mi("Kopiuj", #selector(NSText.copy(_:)), "c"),
                        mi("Wklej", #selector(NSText.paste(_:)), "v"), mi("Zaznacz wszystko", #selector(NSText.selectAll(_:)), "a")])
-        add("Widok", [mi("Odśwież", #selector(reload), "r"), mi("Pełny ekran", #selector(NSWindow.toggleFullScreen(_:)), "f", [.command, .control])])
+        add("Widok", [mi("Mini wyszukiwarka (⌥⌘L)", #selector(miniFromMenu), "l", [.command, .option]),
+                      mi("Odśwież", #selector(reload), "r"), mi("Pełny ekran", #selector(NSWindow.toggleFullScreen(_:)), "f", [.command, .control])])
         add("Okno", [mi("Zminimalizuj", #selector(NSWindow.performMiniaturize(_:)), "m"), mi("Zamknij okno", #selector(NSWindow.performClose(_:)), "w")])
         NSApp.mainMenu = main
     }
     @objc func reload() { web.reload() }
+    @objc func miniFromMenu() { toggle() }
 }
 
 let app = NSApplication.shared

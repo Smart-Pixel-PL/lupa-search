@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lupa mini</title>
+<style>
+:root { --bg: rgba(255,255,255,.0); --text: #1c1c1a; --muted: #74746e; --sel: rgba(79,93,255,.14); --line: rgba(0,0,0,.08); --accent: #4f5dff; --thumb: #ececea; }
+@media (prefers-color-scheme: dark) { :root { --text: #ececf0; --muted: #8b8b94; --sel: rgba(140,150,255,.22); --line: rgba(255,255,255,.08); --accent: #8c96ff; --thumb: #2a2a2f; } }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); font: 14px -apple-system, BlinkMacSystemFont, sans-serif; overflow: hidden; user-select: none; -webkit-user-select: none; }
+body:not(.native) { background: #f6f6f4; padding: 30px; } @media (prefers-color-scheme: dark) { body:not(.native) { background: #121214; } }
+.bar { display: flex; align-items: center; gap: 10px; height: 58px; padding: 0 18px; }
+.bar svg { flex: none; opacity: .55; }
+#q { flex: 1; border: 0; outline: 0; background: transparent; font-size: 22px; color: var(--text); font-weight: 300; }
+#q::placeholder { color: var(--muted); }
+.spin { width: 14px; height: 14px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: s .7s linear infinite; visibility: hidden; }
+.busy .spin { visibility: visible; } @keyframes s { to { transform: rotate(360deg); } }
+#list { border-top: 1px solid var(--line); padding: 6px; max-height: 470px; overflow-y: auto; }
+#list:empty { display: none; }
+.row { display: grid; grid-template-columns: 44px 1fr auto; gap: 12px; align-items: center; padding: 6px 10px; border-radius: 9px; cursor: default; }
+.row.on { background: var(--sel); }
+.row img, .row .ic { width: 44px; height: 44px; border-radius: 7px; object-fit: cover; background: var(--thumb); display: grid; place-items: center; font-size: 22px; }
+.row .n { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 14px; }
+.row .f { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12px; color: var(--muted); margin-top: 2px; }
+.row .m { font-size: 12px; color: var(--muted); text-align: right; white-space: nowrap; }
+.foot { display: flex; gap: 14px; padding: 7px 16px; border-top: 1px solid var(--line); font-size: 11.5px; color: var(--muted); }
+.foot:empty, #list:empty + .foot { display: none; }
+kbd { font: inherit; background: var(--line); border-radius: 4px; padding: 0 5px; }
+.empty { padding: 16px; color: var(--muted); text-align: center; }
+</style>
+</head>
+<body>
+<div class="bar">
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+  <input id="q" placeholder="Szukaj w Lupie…" autocomplete="off" spellcheck="false" autofocus>
+  <div class="spin"></div>
+</div>
+<div id="list"></div>
+<div class="foot"><span><kbd>↵</kbd> otwórz</span><span><kbd>⌘↵</kbd> pokaż w Finderze</span><span><kbd>⌘Y</kbd> podgląd</span><span><kbd>⌘O</kbd> pełna Lupa</span><span>przeciągnij plik, by go upuścić gdzie indziej</span></div>
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const ICON = { image: "🖼️", raw: "📷", video: "🎬", audio: "🎵", pdf: "📕", doc: "📄", sheet: "📊", slides: "📽️", design: "🎨",
+  text: "📝", web: "🌐", code: "💻", font: "🔤", archive: "🗜️", model3d: "🧊", package: "📦", other: "📁" };
+const fmtSize = b => !b ? "" : b < 1048576 ? (b / 1024).toFixed(0) + " KB" : b < 1073741824 ? (b / 1048576).toFixed(1) + " MB" : (b / 1073741824).toFixed(2) + " GB";
+const NATIVE = !!window.webkit?.messageHandlers?.lupa;
+const post = m => NATIVE && window.webkit.messageHandlers.lupa.postMessage(m);
+if (NATIVE) document.body.classList.add("native");
+const M = { items: [], cur: 0, req: 0, t: null };
+const HOME = /^\/Users\/[^/]+/;
+const tail = p => p.length > 78 ? "…" + p.slice(-77) : p;  // the end of a path says the most
+
+function resize() { post({ type: "mini-size", h: document.body.scrollHeight }); }
+
+async function search() {
+  const q = $("#q").value.trim(), id = ++M.req;
+  if (!q) { M.items = []; render(); return; }
+  document.body.classList.add("busy");
+  try {
+    const r = await fetch(`/api/search?q=${encodeURIComponent(q)}&limit=9&group=1`).then(r => r.json());
+    if (id !== M.req) return;
+    M.items = r.items || []; M.cur = 0; render();
+  } catch { if (id === M.req) { $("#list").innerHTML = `<div class="empty">Lupa nie odpowiada…</div>`; resize(); } }
+  finally { if (id === M.req) document.body.classList.remove("busy"); }
+}
+
+function render() {
+  $("#list").innerHTML = M.items.length ? M.items.map((f, i) => `<div class="row${i === M.cur ? " on" : ""}" data-i="${i}">
+    ${f.thumb ? `<img src="/api/thumb/${f.id}" onerror="this.outerHTML='<span class=ic>${ICON[f.kind] || "📁"}</span>'">` : `<span class="ic">${ICON[f.kind] || "📁"}</span>`}
+    <div><div class="n">${esc(f.name)}</div><div class="f" title="${esc(f.folder)}">${esc(tail(f.folder.replace(HOME, "~")))}</div></div>
+    <div class="m">${fmtSize(f.size)}${f.offline ? "<br>offline" : ""}</div></div>`).join("")
+    : $("#q").value.trim() && !document.body.classList.contains("busy") ? `<div class="empty">Nic nie znaleziono</div>` : "";
+  $(".row.on")?.scrollIntoView({ block: "nearest" });
+  resize();
+}
+
+async function act(what, i = M.cur) {
+  const f = M.items[i]; if (!f) return;
+  await fetch(`/api/action/${f.id}/${what}`, { method: "POST", headers: { "x-lupa": "1" } });
+  if (what !== "look") { post({ type: "mini-hide" }); }
+}
+
+$("#q").addEventListener("input", () => { clearTimeout(M.t); M.t = setTimeout(search, 140); });
+addEventListener("keydown", e => {
+  const n = M.items.length;
+  if (e.key === "Escape") { e.preventDefault(); if ($("#q").value) { $("#q").value = ""; search(); } else post({ type: "mini-hide" }); }
+  else if (e.key === "ArrowDown" && n) { e.preventDefault(); M.cur = (M.cur + 1) % n; render(); }
+  else if (e.key === "ArrowUp" && n) { e.preventDefault(); M.cur = (M.cur - 1 + n) % n; render(); }
+  else if (e.key === "Enter") { e.preventDefault(); act(e.metaKey ? "reveal" : "open"); }
+  else if (e.metaKey && e.key.toLowerCase() === "y") { e.preventDefault(); act("look"); }
+  else if (e.metaKey && e.key.toLowerCase() === "o") { e.preventDefault(); post({ type: "mini-main", q: $("#q").value }); }
+});
+let drag = null;
+$("#list").addEventListener("mousedown", e => { const r = e.target.closest(".row"); if (r) drag = { x: e.clientX, y: e.clientY, i: +r.dataset.i }; });
+$("#list").addEventListener("mousemove", e => {
+  if (!drag || Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 8) return;
+  const f = M.items[drag.i]; drag = null;
+  if (f && !f.offline) post({ type: "drag", paths: [f.path] });
+});
+addEventListener("mouseup", () => { drag = null; });
+$("#list").addEventListener("click", e => { const r = e.target.closest(".row"); if (r) { M.cur = +r.dataset.i; render(); } });
+$("#list").addEventListener("dblclick", e => { const r = e.target.closest(".row"); if (r) act("open", +r.dataset.i); });
+// called by the app each time the panel is shown
+window.miniShow = () => { $("#q").focus(); $("#q").select(); resize(); };
+resize();
+</script>
+</body>
+</html>

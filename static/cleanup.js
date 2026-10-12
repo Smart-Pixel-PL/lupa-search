@@ -66,7 +66,7 @@ function itemRow(c, i) {
       ${i.note || conf ? `<div class="cl-n">${esc([i.note, conf].filter(Boolean).join(" · "))}</div>` : ""}${appDetails(i)}</div>
     <div class="cl-when">${esc(when)}</div>
     <div class="cl-size">${fmtSize(i.size)}</div>
-    <div class="cl-tools"><button data-a="reveal" title="Pokaż w Finderze">🔍</button><button data-a="protect" title="Nigdy nie proponuj (chroń)">🛡</button></div>
+    <div class="cl-tools">${i.nas_copy ? `<button data-a="reveal-nas" title="Pokaż kopię na NAS-ie">🗄</button>` : ""}<button data-a="reveal" title="Pokaż w Finderze">🔍</button><button data-a="protect" title="Nigdy nie proponuj (chroń)">🛡</button></div>
   </div>`;
 }
 
@@ -144,6 +144,10 @@ $("#clCats").addEventListener("click", async e => {
     const p = row.dataset.path;
     const a = e.target.closest("[data-a]")?.dataset.a;
     if (a === "reveal") return api("/api/cleanup/reveal", { method: "POST", json: { path: p } });
+    if (a === "reveal-nas") {
+      const it = c.items.find(x => x.path === p);
+      return api("/api/diskmap/reveal", { method: "POST", json: { path: it.nas_copy } }).catch(() => toast("NAS niedostępny"));
+    }
     if (a === "details") { CL.expanded = CL.expanded || new Set(); CL.expanded.has(p) ? CL.expanded.delete(p) : CL.expanded.add(p); return renderCleanup(); }
     if (a === "plan") return openPlan(p);
     if (a === "uninstall-now") {
@@ -331,3 +335,97 @@ $("#unModal").addEventListener("keydown", e => {
     $(".un-row.app.cur")?.scrollIntoView({ block: "nearest" });
   }
 });
+
+
+// ---------------------------------------------------------------- disk usage map (squarified treemap)
+const DM = { src: "local", path: "/", poll: null, data: null, seq: 0 };
+const DM_COLORS = ["#4f5dff", "#e5484d", "#30a46c", "#f76b15", "#8e4ec6", "#0090ff", "#d6409f", "#12a594", "#ad7f58", "#3e63dd", "#e54666", "#46a758"];
+
+function squarify(items, x, y, w, h) {
+  // Bruls et al.: lay rows along the shorter side, keep tile aspect ratios close to 1
+  const out = [], total = items.reduce((a, i) => a + i.size, 0);
+  if (!total) return out;
+  const scale = (w * h) / total;
+  let rest = items.map(i => ({ ...i, area: i.size * scale }));
+  const worst = (row, side) => {
+    const s = row.reduce((a, r) => a + r.area, 0);
+    return Math.max(...row.map(r => Math.max(side * side * r.area / (s * s), (s * s) / (side * side * r.area))));
+  };
+  while (rest.length) {
+    const side = Math.min(w, h);
+    const row = [rest.shift()];
+    while (rest.length && worst([...row, rest[0]], side) <= worst(row, side)) row.push(rest.shift());
+    const s = row.reduce((a, r) => a + r.area, 0);
+    if (w >= h) {  // column on the left
+      const cw = s / h; let cy = y;
+      row.forEach(r => { const rh = r.area / cw; out.push({ ...r, x, y: cy, w: cw, h: rh }); cy += rh; });
+      x += cw; w -= cw;
+    } else {       // row on top
+      const rh = s / w; let cx = x;
+      row.forEach(r => { const rw = r.area / rh; out.push({ ...r, x: cx, y, w: rw, h: rh }); cx += rw; });
+      y += rh; h -= rh;
+    }
+  }
+  return out;
+}
+
+async function dmLoad(path) {
+  if (path !== undefined) DM.path = path;
+  clearTimeout(DM.poll);
+  const seq = ++DM.seq;
+  const r = await api(`/api/diskmap?source=${DM.src}&path=${encodeURIComponent(DM.path)}`);
+  if (seq !== DM.seq || $("#dmModal").hidden) return;  // a newer request (or closing) superseded this one
+  if (r.path) DM.path = r.path;
+  DM.data = r;
+  dmRender();
+  if (r.pending) DM.poll = setTimeout(() => dmLoad(), 1500);
+}
+
+function dmRender() {
+  const r = DM.data, map = $("#dmMap");
+  const parts = DM.path.split("/").filter(Boolean);
+  const crumbs = DM.src === "local" ? [["Macintosh HD", "/"]] : [];
+  parts.forEach((p, i) => { const full = "/" + parts.slice(0, i + 1).join("/"); if (DM.src === "local" || i >= 1) crumbs.push([p, full]); });
+  $("#dmCrumbs").innerHTML = crumbs.map(([n, p]) => `<a data-p="${esc(p)}">${esc(n)}</a>`).join("<span>›</span>");
+  $$("#dmSrc button").forEach(b => b.classList.toggle("on", b.dataset.s === DM.src));
+  if (r.pending) {
+    $("#dmSub").textContent = "";
+    map.innerHTML = `<div class="dm-wait"><div><span class="spin"></span> Liczę rozmiary folderów…<br><small>Duże foldery (np. Twój katalog domowy) mogą zająć minutę — wynik jest zapamiętywany na 30 min.</small></div></div>`;
+    return;
+  }
+  const items = (r.items || []).filter(i => i.size > 0).sort((a, b) => b.size - a.size);
+  const shown = items.slice(0, 60), restSize = items.slice(60).reduce((a, i) => a + i.size, 0);
+  if (restSize) shown.push({ name: `${items.length - 60} mniejszych`, size: restSize, path: "", dir: false, system: true });
+  $("#dmSub").innerHTML = `<b>${fmtSize(r.total || 0)}</b> w ${items.length} elementach` + (r.at ? ` · policzone ${new Date(r.at * 1000).toLocaleTimeString("pl-PL")}` : "") +
+    (DM.src === "nas" ? " · tylko pliki znane Lupie" : "");
+  if (!shown.length) { map.innerHTML = `<div class="dm-wait">Pusto — albo brak dostępu do tego folderu.</div>`; return; }
+  const W = map.clientWidth, H = map.clientHeight;
+  map.innerHTML = squarify(shown, 0, 0, W, H).map((t, k) => {
+    const cls = ["dm-t", t.system ? "sys" : "", t.dir ? "" : "file", t.w < 70 || t.h < 34 ? "small" : ""].join(" ");
+    const pct = r.total ? (t.size / r.total * 100).toFixed(1) : 0;
+    return `<div class="${cls}" data-p="${esc(t.path)}" data-dir="${t.dir ? 1 : 0}" title="${esc(t.name)} — ${fmtSize(t.size)} (${pct}%)"
+      style="left:${t.x}px;top:${t.y}px;width:${t.w}px;height:${t.h}px;background:${DM_COLORS[k % DM_COLORS.length]}">
+      <b>${esc(t.name)}</b><span>${fmtSize(t.size)} · ${pct}%</span></div>`;
+  }).join("");
+}
+
+function dmUp() {
+  if (DM.path === "/" || (DM.src === "nas" && DM.path.split("/").length <= 3)) return;
+  dmLoad(DM.path.replace(/\/[^/]+$/, "") || "/");
+}
+$("#dmOpen").addEventListener("click", () => { $("#dmModal").hidden = false; dmLoad(DM.src === "local" ? "/" : ""); });
+$("#dmClose").addEventListener("click", () => { $("#dmModal").hidden = true; clearTimeout(DM.poll); });
+$("#dmBack").addEventListener("click", dmUp);
+$("#dmCrumbs").addEventListener("click", e => { const a = e.target.closest("a"); if (a) dmLoad(a.dataset.p); });
+$("#dmSrc").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; DM.src = b.dataset.s; dmLoad(DM.src === "local" ? "/" : ""); });
+$("#dmMap").addEventListener("click", e => {
+  const t = e.target.closest(".dm-t"); if (!t || !t.dataset.p) return;
+  if (e.altKey || t.dataset.dir !== "1") return api("/api/diskmap/reveal", { method: "POST", json: { path: t.dataset.p } }).catch(() => toast("Nie można pokazać tego miejsca"));
+  dmLoad(t.dataset.p);
+});
+document.addEventListener("keydown", e => {
+  if ($("#dmModal").hidden) return;
+  if (e.key === "Escape") { e.stopPropagation(); $("#dmClose").click(); }
+  if (e.key === "Backspace") { e.preventDefault(); dmUp(); }
+}, true);
+window.addEventListener("resize", () => { if (!$("#dmModal").hidden && DM.data && !DM.data.pending) dmRender(); });

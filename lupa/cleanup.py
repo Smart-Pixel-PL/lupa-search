@@ -20,7 +20,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
-from .common import CFG, DATA, PROJECT, connect, meta_get, meta_set, root_online
+from .common import CFG, DATA, PROJECT, connect, meta_get, meta_set, root_of, root_online
 
 HOME = os.path.expanduser("~")
 LIB = os.path.join(HOME, "Library")
@@ -643,6 +643,36 @@ def cat_duplicates():
     return items
 
 
+def cat_on_nas():
+    """Local files that already have an identical copy on the NAS (same name + size, then checksum of both)."""
+    rows = _local_index_rows("""SELECT l.id, l.path, l.size, l.mtime,
+                                       (SELECT n.path FROM files n WHERE n.name = l.name AND n.size = l.size
+                                        AND n.root LIKE '/Volumes/%' AND n.missing = 0 LIMIT 1) AS nas
+                                FROM files l WHERE l.root NOT LIKE '/Volumes/%' AND l.size >= 1048576
+                                AND l.kind != 'package' AND l.missing = 0 AND nas IS NOT NULL""")
+    if not rows or not root_online(root_of(rows[0]["nas"]) or ""):
+        return []  # NAS not mounted — can't confirm anything
+    rows = [r for r in rows if os.path.exists(r["path"]) and not _guard(r["path"])]
+
+    def same(r):
+        a = _hash(r["path"])
+        return a is not None and a == _hash(r["nas"])
+
+    with ThreadPoolExecutor(4) as pool:
+        ok = list(pool.map(same, rows))
+    dl = os.path.join(HOME, "Downloads") + "/"
+    nas_root = {r: r.rstrip("/").rsplit("/", 1)[-1] for r in CFG["roots"] if r.startswith("/Volumes/")}
+    out = []
+    for r, good in zip(rows, ok):
+        if not good:
+            continue
+        nr = root_of(r["nas"]) or ""
+        where = nas_root.get(nr, "NAS") + r["nas"][len(nr):].rsplit("/", 1)[0]
+        out.append(_item(r["path"], r["size"], "file", id=r["id"], mtime=r["mtime"], nas_copy=r["nas"],
+                         preselect=r["path"].startswith(dl), note=f"Kopia na NAS: {where}"))
+    return out
+
+
 def cat_ios_backups():
     d = os.path.join(LIB, "Application Support", "MobileSync", "Backup")
     try:
@@ -745,6 +775,9 @@ CATEGORIES = [
      "Nieotwierane od dawna. Sprawdź, czy czegoś nie potrzebujesz, zanim usuniesz.", cat_downloads),
     ("duplicates", "Duplikaty", "👯", "check",
      "Pliki identyczne co do bajtu (sprawdzone sumą kontrolną). Najlepsza kopia jest oznaczona i zostaje.", cat_duplicates),
+    ("on_nas", "Już są na NAS-ie", "🗄️", "check",
+     "Pliki z Maca, których identyczna kopia (ta sama nazwa, rozmiar i suma kontrolna) leży już na NAS-ie. "
+     "Kopia na NAS-ie zostaje — usuwasz tylko lokalną.", cat_on_nas),
     ("unused_apps", "Nieużywane aplikacje", "💤", "check",
      "Aplikacje nieotwierane od dawna. Można je w każdej chwili zainstalować ponownie.", cat_unused_apps),
     ("big_old", "Duże, dawno nieużywane pliki", "🐘", "careful",
@@ -860,6 +893,9 @@ def trash(paths, source="user"):
             results[p] = "nie ma tego w ostatnim skanie"
             continue
         why = _guard(p, cands[p][0])
+        nas = cands[p][1].get("nas_copy")
+        if not why and nas and not (os.path.exists(nas) and _hash(nas) == _hash(p)):
+            why = "kopii na NAS-ie już nie ma albo się różni — zostawiam lokalny plik"
         if why:
             results[p] = why
             continue

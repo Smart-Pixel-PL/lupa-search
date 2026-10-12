@@ -8,6 +8,7 @@ import threading
 import time
 import json
 import re
+import shutil
 
 import numpy as np
 from fastapi import Body, FastAPI, File, HTTPException, Request, UploadFile
@@ -613,7 +614,7 @@ def raw(fid: int):
 @app.post("/api/action/{fid}/{what}")
 def action(fid: int, what: str):
     p = _path(fid)
-    cmd = {"open": ["open", p], "reveal": ["open", "-R", p]}.get(what)
+    cmd = {"open": ["open", p], "reveal": ["open", "-R", p], "look": ["qlmanage", "-p", p]}.get(what)
     if not cmd:
         raise HTTPException(400)
     subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -919,6 +920,102 @@ def ask(request: Request, d: dict = Body(...)):
         yield '{"type":"done"}\n'
 
     return StreamingResponse(gen(), media_type="application/x-ndjson")
+
+
+# disk usage map (treemap) ------------------------------------------------------
+_dm_cache: dict = {}
+_dm_running: set = set()
+
+
+def _du_children(path):
+    """Real on-disk size of each direct child (du -kx -d 1), run in a thread — big folders take a while."""
+    try:
+        out = subprocess.run(["du", "-kx", "-d", "1", path], capture_output=True, text=True, timeout=900).stdout
+    except subprocess.TimeoutExpired:
+        out = ""
+    items = []
+    for line in out.splitlines():
+        kb, _, p_ = line.partition("\t")
+        if p_ and p_.rstrip("/") != path.rstrip("/"):
+            items.append({"name": os.path.basename(p_), "path": p_, "size": int(kb) * 1024, "dir": os.path.isdir(p_)})
+    # files directly in the folder are counted by du only in the parent's total — big ones get their own tile
+    loose, n_loose = 0, 0
+    try:
+        for e in os.scandir(path):
+            if e.is_file(follow_symlinks=False):
+                sz = e.stat(follow_symlinks=False).st_blocks * 512
+                if sz > 50 * 1024 ** 2:
+                    items.append({"name": e.name, "path": e.path, "size": sz, "dir": False})
+                else:
+                    loose += sz
+                    n_loose += 1
+    except OSError:
+        pass
+    if loose:
+        items.append({"name": f"{n_loose} mniejszych plików", "path": "", "size": loose, "dir": False, "system": True})
+    return items
+
+
+def _dm_compute(key, path):
+    try:
+        if path == "/":
+            u = shutil.disk_usage("/")
+            used = u.total - u.free
+            items = []
+            for top in ("/Users", "/Applications", "/Library", "/opt", "/usr/local"):
+                if os.path.isdir(top):
+                    kids = _du_children(top) if top == "/Users" else None
+                    size = sum(k["size"] for k in kids) if kids else int(subprocess.run(
+                        ["du", "-skx", top], capture_output=True, text=True, timeout=900).stdout.split()[0] or 0) * 1024
+                    items.append({"name": top.strip("/") or top, "path": top, "size": size, "dir": True})
+            other = used - sum(i["size"] for i in items)
+            if other > 0:
+                items.append({"name": "System macOS, pamięć wirtualna i inne", "path": "", "size": other, "dir": False,
+                              "system": True})
+            res = {"path": "/", "items": items, "total": used}
+        else:
+            items = _du_children(path)
+            res = {"path": path, "items": items, "total": sum(i["size"] for i in items)}
+        res["at"] = time.time()
+        _dm_cache[key] = res
+    finally:
+        _dm_running.discard(key)
+
+
+@app.get("/api/diskmap")
+def diskmap(path: str = "/", source: str = "local"):
+    """Folder sizes for the treemap. local = real sizes (du, async + cached 30 min); nas = from the index (instant)."""
+    path = path or "/"
+    if source == "nas":
+        c = db()
+        base = path.rstrip("/") or next((r for r in CFG["roots"] if r.startswith("/Volumes/")), "")
+        if not base:
+            return {"path": "", "items": [], "total": 0}
+        L = len(base) + 2
+        seg = "CASE WHEN instr(substr(path, ?), '/') > 0 THEN substr(substr(path, ?), 1, instr(substr(path, ?), '/') - 1) ELSE substr(path, ?) END"
+        rows = c.execute(f"""SELECT {seg} AS s, sum(size), max(instr(substr(path, ?), '/') > 0)
+                             FROM files WHERE path >= ? AND path < ? GROUP BY s""",
+                         (L, L, L, L, L, base + "/", base + "0")).fetchall()
+        items = [{"name": n, "path": f"{base}/{n}", "size": sz or 0, "dir": bool(d)} for n, sz, d in rows]
+        return {"path": base, "items": items, "total": sum(i["size"] for i in items), "source": "nas"}
+    key = path
+    hit = _dm_cache.get(key)
+    if hit and time.time() - hit["at"] < 1800:
+        return {**hit, "source": "local"}
+    if key not in _dm_running:
+        _dm_running.add(key)
+        threading.Thread(target=_dm_compute, args=(key, path), daemon=True).start()
+    return {"path": path, "pending": True, "source": "local"}
+
+
+@app.post("/api/diskmap/reveal")
+def diskmap_reveal(d: dict = Body(...)):
+    p = os.path.realpath(str(d.get("path", "")))
+    allowed = [r.rstrip("/") for r in CFG["roots"]] + ["/Users", "/Applications", "/Library", "/opt", "/usr/local"]
+    if not os.path.exists(p) or not any(p == a or p.startswith(a + "/") for a in allowed):
+        raise HTTPException(404)
+    subprocess.Popen(["open", "-R", p])
+    return {"ok": True}
 
 
 # folder browser --------------------------------------------------------------

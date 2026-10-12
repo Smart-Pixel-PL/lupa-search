@@ -47,7 +47,9 @@ Wpisz *„zdjęcie drużyny na sztucznej murawie”*, *„faktura za transport 2
 - 🎙 **Transkrypcje:** mowa z nagrań i filmów jest przepisywana lokalnie (Whisper) i wyszukiwalna. Kliknięcie zdania przewija nagranie do tego miejsca.
 - ✂️ **Usuń tło:** jedno kliknięcie w podglądzie tworzy obok kopię `<nazwa> bez tła.png`. Przy logotypach na jednolitym tle Lupa zachowuje białe elementy w środku logo i nie zostawia obwódki, przy zdjęciach używa Apple Vision.
 - 🏷 **Podpowiedzi tagów:** Lupa uczy się z Twoich tagów i proponuje je nowym plikom.
-- 🍏 **Natywna aplikacja:** ikona w Docku, skrót **⌥⌘L**, autostart, tryb jasny i ciemny.
+- 🍏 **Natywna aplikacja:** ikona w Docku, autostart, tryb jasny i ciemny. **⌥⌘L** w dowolnym miejscu otwiera mini okno jak Spotlight (↵ otwórz, ⌘↵ Finder, ⌘Y podgląd, ⌘O pełne okno, przeciągnij wynik do innej aplikacji).
+- 🧩 **Rozszerzenie Raycast** w [`raycast-extension/`](raycast-extension/): siatka miniatur, filtr typu, Quick Look, podobne pliki, kopiowanie pliku. Instalacja: `cd raycast-extension && npm install && npm run dev`.
+- 🗺 **Mapa dysku:** mapa kafelkowa tego, co zajmuje miejsce na Macu (na żywo) i na NAS-ie (z indeksu), z wchodzeniem w foldery.
 - ⌨️ **Skróty:** `/` szukaj · strzałki · `Spacja` podgląd · `Q` pełny ekran · `Enter` otwórz · `⌘Enter` pokaż w Finderze · `S` podobne · `T` taguj · `F` ulubione.
 
 ## Wymagania
@@ -81,7 +83,7 @@ Konfiguracja jest w pliku `lupa.toml` w folderze projektu (powstaje z [`lupa.exa
 
 ## Porządki
 
-Zakładka do utrzymania porządku na **dysku lokalnym**. Pliki systemowe macOS, pęk kluczy, Poczta, Wiadomości i iCloud Drive są nietykalne, a dyski sieciowe są pomijane. Przycisk **„Odinstaluj aplikację…”** działa jak w Raycaście: pokazuje wszystkie pliki aplikacji, także systemowe (`LaunchDaemons`, `PrivilegedHelperTools`), z polami wyboru i rozmiarami, a pliki systemowe usuwa po podaniu hasła. Nieużywane aplikacje są **prawidłowo odinstalowywane**: aplikacja trafia do Kosza razem ze swoimi danymi z `~/Library`. Aplikacje Adobe Lupa odsyła do Creative Cloud, a aplikacje z własnym deinstalatorem albo z komponentami systemowymi do deinstalatora producenta. Każda pozycja ma poziom ryzyka (bezpieczne / sprawdź / uważaj). Lupa niczego nie kasuje sama: zaznaczone elementy trafiają do Kosza przez Findera. Skan uruchamia się co tydzień, a przy wolnym miejscu poniżej 15% przychodzi powiadomienie. Opcjonalnie Lupa może co tydzień sama przenosić do Kosza cache i logi. Szczegóły są w [specyfikacji](docs/SPECYFIKACJA.md#9-porządki--czyszczenie-dysku-lokalnego).
+Zakładka do utrzymania porządku na **dysku lokalnym**. Pliki systemowe macOS, pęk kluczy, Poczta, Wiadomości i iCloud Drive są nietykalne, a dyski sieciowe są pomijane. Przycisk **„Odinstaluj aplikację…”** działa jak w Raycaście: pokazuje wszystkie pliki aplikacji, także systemowe (`LaunchDaemons`, `PrivilegedHelperTools`), z polami wyboru i rozmiarami, a pliki systemowe usuwa po podaniu hasła. Nieużywane aplikacje są **prawidłowo odinstalowywane**: aplikacja trafia do Kosza razem ze swoimi danymi z `~/Library`. Aplikacje Adobe Lupa odsyła do Creative Cloud, a aplikacje z własnym deinstalatorem albo z komponentami systemowymi do deinstalatora producenta. Kategoria **„Już są na NAS-ie”** pokazuje pliki z Maca, których identyczna kopia (nazwa, rozmiar i suma kontrolna) leży już na NAS-ie — usuwasz tylko lokalną, a kopia jest sprawdzana jeszcze raz tuż przed przeniesieniem do Kosza. Każda pozycja ma poziom ryzyka (bezpieczne / sprawdź / uważaj). Lupa niczego nie kasuje sama: zaznaczone elementy trafiają do Kosza przez Findera. Skan uruchamia się co tydzień, a przy wolnym miejscu poniżej 15% przychodzi powiadomienie. Opcjonalnie Lupa może co tydzień sama przenosić do Kosza cache i logi. Szczegóły są w [specyfikacji](docs/SPECYFIKACJA.md#9-porządki--czyszczenie-dysku-lokalnego).
 
 ## Technologia w skrócie
 

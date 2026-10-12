@@ -1,0 +1,53 @@
+{
+  "$schema": "https://www.raycast.com/schemas/extension.json",
+  "name": "lupa-search",
+  "title": "Lupa",
+  "description": "Semantic search of all your files (Mac + NAS) with local EmbeddingGemma 2 — thumbnails, Quick Look, similar files.",
+  "icon": "icon.png",
+  "author": "smart_pixel",
+  "license": "MIT",
+  "categories": ["Productivity", "Media"],
+  "commands": [
+    {
+      "name": "search",
+      "title": "Szukaj w Lupie",
+      "subtitle": "Lupa",
+      "description": "Wyszukiwanie plików po znaczeniu, z miniaturami.",
+      "mode": "view"
+    },
+    {
+      "name": "open-lupa",
+      "title": "Otwórz Lupę",
+      "subtitle": "Lupa",
+      "description": "Pokazuje okno aplikacji Lupa.",
+      "mode": "no-view"
+    }
+  ],
+  "preferences": [
+    {
+      "name": "server",
+      "title": "Adres serwera Lupy",
+      "description": "Lupa.app uruchamia serwer lokalnie.",
+      "type": "textfield",
+      "required": false,
+      "default": "http://127.0.0.1:7766"
+    }
+  ],
+  "dependencies": {
+    "@raycast/api": "^1.104.25",
+    "@raycast/utils": "^1.17.0"
+  },
+  "devDependencies": {
+    "@raycast/eslint-config": "^1.0.11",
+    "@types/node": "22.19.17",
+    "@types/react": "19.0.10",
+    "eslint": "^8.57.0",
+    "prettier": "^3.3.3",
+    "typescript": "^5.4.5"
+  },
+  "scripts": {
+    "build": "ray build -e dist",
+    "dev": "ray develop",
+    "lint": "ray lint"
+  }
+}

@@ -37,8 +37,8 @@ Wykreślamy po kolei: `- [x] ~~funkcja~~` = zrobione (z datą i wersją).
 - [x] ~~Usuwanie tła z obrazów (logo od klientów) — kopia „<nazwa> bez tła.png” obok oryginału~~ — v0.6.1 (12.10.2026)
 
 ## 6. Wygoda i porządek
-- [ ] Mini okno wyszukiwania (⌥⌘L jak Spotlight)
-- [ ] Rozszerzenie Raycast
+- [x] ~~Mini okno wyszukiwania (⌥⌘L jak Spotlight)~~ — v0.7.0: pływający panel, ↵ otwórz, ⌘↵ Finder, ⌘Y podgląd, ⌘O pełna Lupa, przeciąganie plików (12.10.2026)
+- [x] ~~Rozszerzenie Raycast~~ — v0.7.0: `raycast-extension/`, siatka miniatur, filtr typu, Quick Look, podobne pliki, kopiowanie pliku (12.10.2026)
 - [x] ~~Natychmiastowe indeksowanie nowych plików na Macu~~ — v0.6.2: FSEvents, nowy/zmieniony/usunięty plik w wyszukiwarce po ~4 s (12.10.2026)
-- [ ] Mapa zajętości dysku
-- [ ] Porządki Mac ↔ NAS (pliki zdublowane między Makiem a NAS-em)
+- [x] ~~Mapa zajętości dysku~~ — v0.7.0: Porządki → 🗺 Mapa dysku, mapa kafelkowa Maca (na żywo) i NAS-a (z indeksu), wchodzenie w foldery (12.10.2026)
+- [x] ~~Porządki Mac ↔ NAS (pliki zdublowane między Makiem a NAS-em)~~ — v0.7.0: kategoria „Już są na NAS-ie”, nazwa + rozmiar + suma kontrolna, przed usunięciem ponowne sprawdzenie kopii (12.10.2026)

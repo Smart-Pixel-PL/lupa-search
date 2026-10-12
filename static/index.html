@@ -165,6 +165,7 @@
       <div class="cl-big"><small>Do odzyskania</small><b id="clTotal">—</b></div>
       <button id="clScan" class="cl-btn">↻ Skanuj teraz</button>
       <button id="unOpen" class="cl-btn">🧩 Odinstaluj aplikację…</button>
+      <button id="dmOpen" class="cl-btn">🗺 Mapa dysku</button>
       <div class="cl-meta" id="clMeta"></div>
     </div>
   </div>
@@ -196,6 +197,20 @@
       <span id="unTitle"></span><span class="spacer"></span>
       <button id="unGo" class="un-go">Odinstaluj aplikację <kbd>↵</kbd></button>
     </div>
+  </div>
+</div>
+
+<div id="dmModal" class="un-modal" hidden>
+  <div class="un-box dm-box">
+    <div class="un-head">
+      <button class="un-back" id="dmBack" title="W górę (Backspace)">←</button>
+      <div class="dm-crumbs" id="dmCrumbs"></div>
+      <div class="seg" id="dmSrc"><button data-s="local" class="on">💻 Mac</button><button data-s="nas">🗄 NAS</button></div>
+      <button class="un-back" id="dmClose" title="Zamknij (Esc)">✕</button>
+    </div>
+    <div class="dm-sub" id="dmSub"></div>
+    <div class="dm-map" id="dmMap"></div>
+    <div class="dm-foot">Kliknij kafelek, aby wejść do folderu · <kbd>⌥</kbd>+klik pokazuje go w Finderze · rozmiary z Maca liczone na żywo, z NAS-a — z indeksu Lupy</div>
   </div>
 </div>
 

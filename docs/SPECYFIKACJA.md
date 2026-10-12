@@ -1,6 +1,6 @@
 # Lupa — specyfikacja aplikacji
 
-> Wersja 0.6.2 (beta) · październik 2026 · © Smart Pixel · licencja MIT
+> Wersja 0.7.0 (beta) · październik 2026 · © Smart Pixel · licencja MIT
 
 ## 1. Czym jest Lupa
 
@@ -194,6 +194,8 @@ Pełna lista jest w `lupa.toml`.
 - **Kolor**: 17 kolorów + własny; paleta każdego pliku (do 6 kolorów, CIE Lab, z miniatury) liczona w tle (`lupa/colors.py`); trafność = udział obrazu bliski wybranemu kolorowi (ΔE)
 - „Podobne” do pliku, szukanie obrazem (przeciągnij, wklej ⌘V lub przycisk 🖼)
 - otwieranie pliku i pokazywanie w Finderze
+- **mini okno (v0.7)**: ⌥⌘L otwiera pływający panel jak Spotlight (na ekranie z kursorem) — wpisz, ↑↓, ↵ otwórz, ⌘↵ pokaż w Finderze, ⌘Y podgląd Quick Look, ⌘O przenosi zapytanie do pełnego okna, wynik można przeciągnąć do innej aplikacji; Esc lub kliknięcie obok chowa panel. Pełne okno: ikona w Docku albo menu Widok. Strona: `static/mini.html`
+- **rozszerzenie Raycast (v0.7)**: `raycast-extension/` — „Szukaj w Lupie” (siatka miniatur, filtr typu, ↵ otwórz, ⌘Y Quick Look, ⌘S podobne, ⌘⇧C kopiuj plik, ⌘. kopiuj ścieżkę) i „Otwórz Lupę”; korzysta z lokalnego serwera Lupy
 - status indeksowania z postępem, tempem, czasem do końca i ostrzeżeniem o braku uprawnień
 - tryb jasny i ciemny według systemu
 
@@ -229,6 +231,14 @@ Zakładka **Porządki** pomaga utrzymać wolne miejsce na dysku systemowym (Maci
 | 🐘 Duże, dawno nieużywane pliki (200+ MB, rok) | uważaj | nie |
 | 🩹 Uszkodzone pliki (nie do otwarcia, puste, ucięte; rozpoznaje też „obrazy”, które są stronami HTML z nieudanego pobrania) | sprawdź | nie; pliki z NAS tylko „Pokaż w Finderze” |
 | 📱 Kopie zapasowe iPhone'a / iPada | uważaj | nie |
+| 🗄️ Już są na NAS-ie (v0.7): plik z Maca, którego identyczna kopia leży na NAS-ie — ta sama nazwa i rozmiar w indeksie, potem suma kontrolna obu plików (BLAKE2, początek i koniec) | sprawdź | tylko z Pobranych; przed przeniesieniem do Kosza kopia na NAS-ie jest sprawdzana ponownie, a gdy jej nie ma lub się różni — plik lokalny zostaje; przycisk 🗄 pokazuje kopię na NAS-ie |
+
+### Mapa zajętości dysku (v0.7)
+
+Przycisk **🗺 Mapa dysku** w Porządkach: mapa kafelkowa (squarified treemap), w której powierzchnia kafelka = rozmiar folderu.
+- **Mac** — rozmiary liczone na żywo (`du -kx -d 1`, w tle, wynik pamiętany 30 min). Widok główny: Użytkownicy, Aplikacje, Biblioteka, `/opt`, `/usr/local` i „System macOS, pamięć wirtualna i inne” (reszta zajętego miejsca). Pliki ≥50 MB mają własne kafelki, mniejsze są zebrane w jeden.
+- **NAS** — natychmiast, z indeksu Lupy (suma rozmiarów znanych plików; bez skanowania sieci).
+- Kliknięcie wchodzi do folderu, okruszki i ← (Backspace) wracają, ⌥+klik lub klik w plik pokazuje go w Finderze.
 
 ### Odinstalowywanie aplikacji („Nieużywane aplikacje”)
 

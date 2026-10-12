@@ -49,7 +49,9 @@ Type *"photo of a football team on artificial turf"*, *"invoice for transport 20
 - 🎙 **Transcripts.** Speech in audio and video is transcribed locally (Whisper large-v3-turbo on MLX) and searchable. Click a sentence to jump to that moment.
 - ✂️ **Remove background.** One click in the preview creates `<name> bez tła.png` next to the original. Flat-background logos use a precise edge-connected method that keeps white parts inside the logo and leaves no halo. Photos use Apple Vision subject lift. You can try the other method with one click.
 - 🏷 **Tag suggestions.** Lupa learns from how you tag and suggests tags for new files, and can find all files that fit a tag.
-- 🍏 **Native Mac app.** Dock icon, global hotkey **⌥⌘L**, starts at login, light and dark mode.
+- 🍏 **Native Mac app.** Dock icon, starts at login, light and dark mode. **⌥⌘L** anywhere opens a Spotlight-style mini search panel (↵ open, ⌘↵ reveal, ⌘Y Quick Look, ⌘O full window, drag a result out).
+- 🧩 **Raycast extension** in [`raycast-extension/`](raycast-extension/): thumbnail grid, type filter, Quick Look, similar files, copy file.
+- 🗺 **Disk map.** A treemap of what takes space on your Mac (live) and on the NAS (from the index), with drill-down.
 - ⌨️ **Keyboard-first.** `/` search · arrows navigate · `Space` preview · `Q` full screen · `Enter` open · `⌘Enter` reveal in Finder · `S` similar · `T` tag · `F` favorite.
 
 ## Requirements
@@ -115,6 +117,8 @@ Edit `lupa.toml` in the project folder (it is created from [`lupa.example.toml`]
 
 To use a different hotkey, assign one to the **Lupa** application in Raycast or Alfred.
 
+**Raycast extension.** `cd raycast-extension && npm install && npm run dev` imports *Szukaj w Lupie* into Raycast (you can stop the dev process afterwards).
+
 ## Porządki (disk cleanup)
 
 A second tab that keeps your **local disk** clean, in layers from most to least certain:
@@ -132,6 +136,7 @@ A second tab that keeps your **local disk** clean, in layers from most to least 
 | Duplicates (byte-identical, BLAKE2 checksum) | check | only obvious copies; the best copy always stays |
 | Broken files: unreadable, empty, truncated, or "images" that are really HTML from failed downloads | check | no (NAS files: reveal in Finder) |
 | Big, long-unused files · iPhone/iPad backups | careful | no |
+| Already on the NAS: local files with an identical copy on the NAS (name + size, then checksum of both) | check | only in Downloads; the NAS copy is re-verified right before trashing |
 
 **Raycast-style uninstaller.** *Uninstall app…* lists every file an app owns, in `~/Library` and system-wide (`/Library/LaunchDaemons`, `PrivilegedHelperTools`, …). Files are matched by bundle ID and its variants (`.Helper`, `.Updater`, `.Agent`). You get checkboxes, sizes and a filter, and system files are removed in one step with your admin password, after their background services are stopped.
 

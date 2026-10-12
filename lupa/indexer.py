@@ -380,7 +380,9 @@ def embed_content(con, emb, limit=None):
                 continue
             for i, im in enumerate(ex.images):
                 img_items.append((fid, i, im))
-            for i, c in enumerate(chunks(ex.text)):
+            # code: full text goes to keyword search (FTS) only — GPU embeddings of source code cost a lot
+            # (long, varied chunks) and add little; the file is still found by name/folder meaning
+            for i, c in enumerate(chunks(ex.text) if r["kind"] != "code" else []):
                 txt_items.append((fid, i, os.path.splitext(r["name"])[0], c))
             if ex.audio is not None:
                 aud_items.append((fid, ex.audio))

@@ -20,7 +20,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
-from .common import CFG, DATA, PROJECT, connect, meta_get, meta_set
+from .common import CFG, DATA, PROJECT, connect, meta_get, meta_set, root_online
 
 HOME = os.path.expanduser("~")
 LIB = os.path.join(HOME, "Library")
@@ -665,6 +665,71 @@ def cat_ios_backups():
     return out
 
 
+TRANSIENT_ERR = ("Device not configured", "timed out", "Resource busy", "Operation timed out", "Errno 60", "Errno 5")
+BROKEN_REASONS = [
+    ("UnidentifiedImageError", "Nie da się otworzyć obrazu — plik uszkodzony albo to nie jest obraz"),
+    ("truncated", "Obraz jest ucięty (niepełny plik)"),
+    ("FileDataError", "Uszkodzony PDF"),
+    ("PackageNotFoundError", "Uszkodzony dokument Office (.docx/.xlsx/.pptx)"),
+    ("BadZipFile", "Uszkodzone archiwum / dokument"),
+    ("cannot open", "Nie da się otworzyć pliku"),
+]
+
+
+def _broken_reason(err: str, size: int) -> str:
+    if size == 0:
+        return "Pusty plik (0 bajtów)"
+    for key, txt in BROKEN_REASONS:
+        if key.lower() in (err or "").lower():
+            return txt
+    return "Nie da się odczytać: " + (err or "")[:80]
+
+
+def _sniff(path: str) -> str:
+    """What the file really is, from its first bytes (extensions lie)."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(512).lstrip().lower()
+    except OSError:
+        return ""
+    if head.startswith(b"<svg") or (head.startswith(b"<?xml") and b"<svg" in head):
+        return "svg"
+    if head.startswith((b"<!doctype html", b"<html", b"<head", b"<!--")) or b"<html" in head[:200]:
+        return "html"
+    if head.startswith(b"{") or head.startswith(b"["):
+        return "json"
+    return ""
+
+
+def cat_broken():
+    """Files the indexer could not read. Password-protected PDFs and network hiccups are not 'broken'."""
+    rows = _local_index_rows("""SELECT id, path, root, size, mtime, kind, error FROM files WHERE stage=-1
+                                AND error NOT LIKE '%encrypted%' ORDER BY root, path""")
+    out = []
+    for r in rows:
+        if any(t.lower() in (r["error"] or "").lower() for t in TRANSIENT_ERR):
+            continue
+        nas = r["root"].startswith("/Volumes/")
+        if not nas and not os.path.exists(r["path"]):
+            continue
+        if nas and not root_online(r["root"]):
+            continue  # can't verify while the NAS is offline
+        if nas and not os.path.exists(r["path"]):
+            continue
+        reason = _broken_reason(r["error"], r["size"] or 0)
+        real = _sniff(r["path"]) if r["kind"] == "image" and r["size"] else ""
+        if real == "svg":
+            continue  # an SVG saved with a .jpg/.png name — displays fine, not broken
+        if real == "html":
+            reason = "To strona HTML, nie obraz — zwykle nieudane pobranie (prawdziwego obrazka brak)"
+        elif real == "json":
+            reason = "To plik tekstowy (JSON), nie obraz — zwykle nieudane pobranie"
+        out.append(_item(r["path"], r["size"] or 0, "file", id=r["id"], mtime=r["mtime"], nas=nas, preselect=False,
+                         note=reason +
+                         (" · na NAS — usuń w Finderze (przycisk 🔍)" if nas else "")))
+    return out
+
+
 CATEGORIES = [
     # id, title, icon, risk, description
     ("caches", "Cache aplikacji", "🧹", "safe",
@@ -684,6 +749,9 @@ CATEGORIES = [
      "Aplikacje nieotwierane od dawna. Można je w każdej chwili zainstalować ponownie.", cat_unused_apps),
     ("big_old", "Duże, dawno nieużywane pliki", "🐘", "careful",
      "Duże pliki nieotwierane od ponad roku. Rozważ przeniesienie na NAS zamiast usuwania.", cat_big_old),
+    ("broken", "Uszkodzone pliki", "🩹", "check",
+     "Pliki, których nie da się otworzyć: uszkodzone obrazy, PDF-y i dokumenty, puste pliki. Lokalne możesz przenieść do Kosza, "
+     "te z NAS-a pokaż w Finderze.", cat_broken),
     ("ios_backups", "Kopie zapasowe iPhone'a / iPada", "📱", "careful",
      "Lokalne kopie urządzeń. Usuń tylko te, których na pewno nie potrzebujesz (np. starych telefonów).",
      cat_ios_backups),

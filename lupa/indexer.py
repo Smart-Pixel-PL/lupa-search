@@ -499,6 +499,11 @@ def main():
         migrate_nfc(con, emb)
         con.execute("""UPDATE files SET kind='design', stage=CASE WHEN stage=3 THEN 1 ELSE stage END
                        WHERE ext='.af' AND kind!='design'""")
+        # network hiccups (NAS dropped for a moment) are not broken files — queue them again
+        n = con.execute("""UPDATE files SET stage=1, error=NULL WHERE stage=-1 AND (error LIKE '%Device not configured%'
+                           OR error LIKE '%timed out%' OR error LIKE '%Resource busy%' OR error LIKE '%Errno 60%')""").rowcount
+        if n:
+            log(f"{n} plików z chwilowym błędem sieci wraca do kolejki")
         if NAME_ONLY_ON_NETWORK:
             q = ",".join("?" * len(NAME_ONLY_ON_NETWORK))
             n = con.execute(f"""UPDATE files SET stage=3 WHERE stage=1 AND root LIKE '/Volumes/%'

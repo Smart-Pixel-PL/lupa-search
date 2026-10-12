@@ -123,6 +123,7 @@ A second tab that keeps your **local disk** clean, in layers from most to least 
 | Installers (.dmg, .pkg, .iso) | safe | if older than 30 days |
 | Leftovers of uninstalled apps · old Downloads · unused apps | check | no |
 | Duplicates (byte-identical, BLAKE2 checksum) | check | only obvious copies; the best copy always stays |
+| Broken files: unreadable, empty, truncated, or "images" that are really HTML from failed downloads | check | no (NAS files: reveal in Finder) |
 | Big, long-unused files · iPhone/iPad backups | careful | no |
 
 **Raycast-style uninstaller.** *Uninstall app…* lists every file an app owns, in `~/Library` and system-wide (`/Library/LaunchDaemons`, `PrivilegedHelperTools`, …). Files are matched by bundle ID and its variants (`.Helper`, `.Updater`, `.Agent`). You get checkboxes, sizes and a filter, and system files are removed in one step with your admin password, after their background services are stopped.

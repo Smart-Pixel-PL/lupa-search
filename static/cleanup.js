@@ -34,7 +34,7 @@ function itemVisual(i) {
   return `<span class="ic">${i.kind === "app" ? "🧩" : i.kind === "file" ? "📄" : "📁"}</span>`;
 }
 
-const canTrash = i => !i.keep && !(i.kind === "app" && i.method && i.method !== "trash");
+const canTrash = i => !i.keep && !i.nas && !(i.kind === "app" && i.method && i.method !== "trash");
 const UNINSTALL_BTN = { adobe: "Odinstaluj w Creative Cloud", uninstaller: "Odinstaluj (deinstalator producenta)", vendor: "Odinstaluj (otwórz aplikację)" };
 
 function appDetails(i) {
@@ -57,7 +57,7 @@ function itemRow(c, i) {
   const when = i.last_used ? `otwarte ${fmtDate(i.last_used)}` : i.mtime ? `zmienione ${fmtDate(i.mtime)}` : "";
   const conf = i.confidence === "high" ? "pewne dopasowanie" : i.confidence === "medium" ? "dopasowanie po nazwie" : "";
   return `<div class="cl-row ${i.keep ? "keep" : ""}" data-path="${esc(i.path)}">
-    <input type="checkbox" ${CL.sel.has(i.path) ? "checked" : ""} ${i.keep ? "disabled title='Ta kopia zostaje'" : !canTrash(i) ? "disabled title='Odinstaluj deinstalatorem'" : ""}>
+    <input type="checkbox" ${CL.sel.has(i.path) ? "checked" : ""} ${i.keep ? "disabled title='Ta kopia zostaje'" : i.nas ? "disabled title='Plik na NAS — usuń go w Finderze (🔍)'" : !canTrash(i) ? "disabled title='Odinstaluj deinstalatorem'" : ""}>
     <div class="cl-vis">${itemVisual(i)}</div>
     <div class="cl-txt"><div class="cl-name">${esc(i.name)}${i.keep ? ' <span class="pill keep">zostaje</span>' : ""}</div>
       <div class="cl-path" title="${esc(i.path)}">${esc(short(i.path))}</div>

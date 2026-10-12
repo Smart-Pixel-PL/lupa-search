@@ -223,6 +223,7 @@ Zakładka **Porządki** pomaga utrzymać wolne miejsce na dysku systemowym (Maci
 | 👯 Duplikaty (identyczne co do bajtu, suma kontrolna BLAKE2) | sprawdź | tylko kopie w Pobranych/na Biurku lub z „(1)”, „kopia”; najlepsza kopia zawsze zostaje |
 | 💤 Nieużywane aplikacje (180+ dni, pełne odinstalowanie) | sprawdź | nie |
 | 🐘 Duże, dawno nieużywane pliki (200+ MB, rok) | uważaj | nie |
+| 🩹 Uszkodzone pliki (nie do otwarcia, puste, ucięte; rozpoznaje też „obrazy”, które są stronami HTML z nieudanego pobrania) | sprawdź | nie; pliki z NAS tylko „Pokaż w Finderze” |
 | 📱 Kopie zapasowe iPhone'a / iPada | uważaj | nie |
 
 ### Odinstalowywanie aplikacji („Nieużywane aplikacje”)

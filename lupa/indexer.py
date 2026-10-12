@@ -18,6 +18,7 @@ from .common import (CFG, DATA, KIND_LABELS, KIND_PRIORITY, V_AUDIO, V_NAME, V_T
                      connect, kind_of, meta_get, meta_set, nfc, root_of, root_online, thumb_path)
 
 PID_FILE = DATA / "indexer.pid"
+INFLIGHT = DATA / "inflight.json"  # files being extracted right now — survives a hard crash of the process
 CONTENT_KINDS = {"image", "raw", "design", "video", "audio", "pdf", "doc", "sheet", "slides",
                  "text", "web", "code", "font", "model3d"}
 STOP = False
@@ -313,7 +314,30 @@ def embed_content(con, emb, limit=None):
     skip_ids = []
     win = []  # (time, files) of recent batches → current speed, unaffected by battery pauses
 
+    # Crash quarantine: some files make native libraries (e.g. MuPDF) abort the whole process, which no
+    # try/except can catch. Files that were in flight during such a crash become "suspects" (stage -2) and
+    # are retried one at a time; a single file in flight during a crash is marked broken (stage -1).
+    if INFLIGHT.exists():
+        try:
+            ids = json.loads(INFLIGHT.read_text())
+        except Exception:
+            ids = []
+        if len(ids) == 1:
+            con.execute("UPDATE files SET stage=-1, error=? WHERE id=?",
+                        ("Plik powoduje awarię biblioteki (pominięty, wyszukiwalny po nazwie)", ids[0]))
+            log(f"Kwarantanna: plik {ids[0]} powodował awarię — pominięty")
+        elif ids:
+            q = ",".join("?" * len(ids))
+            con.execute(f"UPDATE files SET stage=-2 WHERE stage=1 AND id IN ({q})", ids)
+            log(f"Po awarii: {len(ids)} podejrzanych plików sprawdzę pojedynczo")
+        con.commit()
+        INFLIGHT.unlink(missing_ok=True)
+
     def next_rows(busy):
+        skx = ",".join(str(i) for i in skip_ids[-5000:]) or "0"
+        sus = con.execute(f"SELECT id,path,root,name,kind,size FROM files WHERE stage=-2 AND id NOT IN ({skx}) LIMIT 1").fetchall()
+        if sus:
+            return sus  # suspects go alone, so a crash pins down the exact file
         excl = ",".join("?" * len(offline)) or "''"
         sk = ",".join(str(i) for i in (skip_ids[-5000:] + busy)) or "0"
         return con.execute(f"""
@@ -321,7 +345,11 @@ def embed_content(con, emb, limit=None):
             WHERE stage=1 AND root NOT IN ({excl}) AND id NOT IN ({sk})
             ORDER BY CASE kind {prio} ELSE 9 END, mtime DESC LIMIT 48""", list(offline)).fetchall()
 
+    def mark_inflight(*batches):
+        INFLIGHT.write_text(json.dumps([r["id"] for b in batches for r in b]))
+
     rows = next_rows([])
+    mark_inflight(rows)
     futs = [pool.submit(_extract_one, r) for r in rows]
     while rows and not STOP:
         while on_battery() and not STOP:  # heavy GPU work only on mains power
@@ -330,7 +358,9 @@ def embed_content(con, emb, limit=None):
             time.sleep(60)
         results = [f.result() for f in futs]
         # prefetch the next batch from disk/NAS while the GPU works on this one
-        nxt = next_rows([r["id"] for r in rows]) if not (limit and done + len(rows) >= limit) else []
+        suspect_mode = len(rows) == 1 and con.execute("SELECT stage FROM files WHERE id=?", (rows[0]["id"],)).fetchone()[0] == -2
+        nxt = [] if suspect_mode or (limit and done + len(rows) >= limit) else next_rows([r["id"] for r in rows])
+        mark_inflight(rows, nxt)
         futs_next = [pool.submit(_extract_one, r) for r in nxt]
         img_items, txt_items, aud_items, updates = [], [], [], []
         for r, ex, err in results:
@@ -393,8 +423,15 @@ def embed_content(con, emb, limit=None):
                current=rows[-1]["path"], rate=round(rate, 2))
         del results, img_items, txt_items, aud_items, updates, vec_rows
         emb.free()
+        con.commit()
+        mark_inflight(nxt)
+        if suspect_mode and not nxt:
+            nxt = next_rows([])
+            mark_inflight(nxt)
+            futs_next = [pool.submit(_extract_one, r) for r in nxt]
         rows, futs = nxt, futs_next
     pool.shutdown(wait=False, cancel_futures=True)
+    INFLIGHT.unlink(missing_ok=True)
     log(f"Treść: {done} plików ({done / max(time.time() - t0, 1):.1f}/s)")
 
 

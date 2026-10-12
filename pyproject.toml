@@ -1,6 +1,6 @@
 [project]
 name = "lupa"
-version = "0.6.1"
+version = "0.6.2"
 description = "Local, private semantic file search for macOS powered by Google EmbeddingGemma 2"
 readme = "README.md"
 license = "MIT"
@@ -22,4 +22,5 @@ dependencies = [
     "torch>=2.14.1",
     "transformers>=5.19.0",
     "uvicorn[standard]>=0.54.0",
+    "watchdog>=6.0.0",
 ]

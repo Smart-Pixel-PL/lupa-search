@@ -1,6 +1,6 @@
 # Lupa — specyfikacja aplikacji
 
-> Wersja 0.6.1 (beta) · październik 2026 · © Smart Pixel · licencja MIT
+> Wersja 0.6.2 (beta) · październik 2026 · © Smart Pixel · licencja MIT
 
 ## 1. Czym jest Lupa
 
@@ -102,6 +102,8 @@ Internet był potrzebny tylko raz, do pobrania modelu.
 │  SQLite (WAL) + miniatury    │  pliki, wektory, pełnotekstowy indeks FTS5, tagi, kolekcje
 └──────────────────────────────┘
 ```
+
+**Indeksowanie na żywo (v0.6.2).** `lupa/live.py` nasłuchuje zmian na dyskach lokalnych (FSEvents): nowy, zmieniony, przeniesiony lub usunięty plik trafia do wyszukiwarki po ok. 4 s (wektor nazwy + wyszukiwanie pełnotekstowe + miniatura od razu; analizę treści robi potem indeksator). Te same reguły pomijania co przy pełnym skanie.
 
 **Harmonogram indeksowania.** Po starcie indeksator wznawia przerwaną pracę (bez ponownego skanu). Dysk lokalny
 skanowany jest co `reindex_every_hours` (sekundy), dyski sieciowe najwyżej raz na `network_rescan_hours` (domyślnie 24 h;

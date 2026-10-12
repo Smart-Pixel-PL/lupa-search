@@ -39,6 +39,6 @@ Wykreślamy po kolei: `- [x] ~~funkcja~~` = zrobione (z datą i wersją).
 ## 6. Wygoda i porządek
 - [ ] Mini okno wyszukiwania (⌥⌘L jak Spotlight)
 - [ ] Rozszerzenie Raycast
-- [ ] Natychmiastowe indeksowanie nowych plików na Macu
+- [x] ~~Natychmiastowe indeksowanie nowych plików na Macu~~ — v0.6.2: FSEvents, nowy/zmieniony/usunięty plik w wyszukiwarce po ~4 s (12.10.2026)
 - [ ] Mapa zajętości dysku
 - [ ] Porządki Mac ↔ NAS (pliki zdublowane między Makiem a NAS-em)

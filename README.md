@@ -95,7 +95,7 @@ Open **Lupa** from Launchpad, or press **⌥⌘L** anywhere. The first indexing 
 3. **Thumbnails:** the grid fills with real previews.
 4. **Content analysis:** images, PDFs, Office documents, video and audio. On a large library this can take hours. It runs at low priority, and you can pause it in the bottom-left corner.
 
-After that, Lupa re-scans local disks every 3 hours, network drives once a day, and only analyses new or changed files. The indexer runs at macOS background priority (it never slows down your work), resumes where it stopped after a restart, and pauses content analysis on battery.
+New, changed, moved and deleted files on local disks show up in search within seconds (macOS FSEvents). Full scans still run every 3 hours for local disks, network drives once a day, and only analyses new or changed files. The indexer runs at macOS background priority (it never slows down your work), resumes where it stopped after a restart, and pauses content analysis on battery.
 
 ### Configuration
 

@@ -29,6 +29,7 @@ name_only_on_network = ["code", "web", "font"]
 # AI (lokalnie) / local AI
 # Model Ollama do zakładki „Zapytaj”: gemma3:4b (lekki, 3,3 GB) albo gemma4 (8B, lepsze odpowiedzi, 9,6 GB RAM).
 ask_model = "gemma3:4b"
+live_index = true         # natychmiastowe indeksowanie zmian na dysku lokalnym (FSEvents)
 ocr = true                 # OCR skanów i obrazów z tekstem (Apple Vision)
 transcribe = true          # transkrypcja nagrań (Whisper, gdy indeksator nie pracuje)
 transcribe_max_minutes = 20

@@ -27,6 +27,7 @@ from .colors import ColorIndex  # noqa: E402
 cindex = ColorIndex()
 _emb = None      # text-only on CPU: ~60 ms per query even while the indexer owns the GPU
 _emb_vis = None  # vision model on the GPU, loaded on first image search
+live = None      # FSEvents watcher for local disks (lupa/live.py)
 _emb_lock = threading.Lock()
 _indexer: subprocess.Popen | None = None
 _online = {}
@@ -109,6 +110,14 @@ def _startup():
     vindex.refresh(db(), force=True)
     threading.Thread(target=_bg_loop, daemon=True).start()
     threading.Thread(target=emb, daemon=True).start()  # warm the model
+    if CFG.get("live_index", True):
+        try:
+            from .live import LiveIndexer
+            global live
+            live = LiveIndexer(emb, vindex)
+            live.start()
+        except Exception as e:  # noqa: BLE001
+            print("live index off:", e, file=sys.stderr)
 
 
 def indexer_running():
@@ -756,7 +765,7 @@ def status():
         "places": [{**pl, "count": c.execute("SELECT count(*) FROM files WHERE path >= ? AND path < ?",
                                               (pl["path"] + "/", pl["path"] + "0")).fetchone()[0]}
                    for pl in CFG.get("places", [])],
-        "indexer": st, "model_ready": _emb is not None,
+        "indexer": st, "model_ready": _emb is not None, "live": live.stats if live else None,
         "last_index": float(meta_get(c, "last_index", "0") or 0),
     }
 

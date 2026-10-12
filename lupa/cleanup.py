@@ -791,7 +791,8 @@ def scan():
             except Exception as e:  # one broken category must not kill the report
                 items = []
                 print("cleanup:", cid, e)
-            items = [i for i in items if not _guard(i["path"], cid)]
+            # NAS items are listed (view / reveal in Finder) but stay untrashable: trash() re-checks _guard
+            items = [i for i in items if (cid == "broken" and i.get("nas")) or not _guard(i["path"], cid)]
             items.sort(key=lambda i: (i.get("group", 0), -i["size"]) if cid == "duplicates" else -i["size"])
             reclaim = sum(i["size"] for i in items if not i.get("keep"))
             cats.append({"id": cid, "title": title, "icon": icon, "risk": risk, "desc": desc,

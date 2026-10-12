@@ -14,7 +14,8 @@ const store = {
 };
 
 const S = {
-  q: "", kinds: new Set(), exts: new Set(), folders: new Set(), pins: [], group: store.get("group", false), since: "", roots: new Set(), folder: "", tags: new Set(), collection: null, similar: null,
+  q: "", kinds: new Set(), exts: new Set(), folders: new Set(), pins: [], group: store.get("group", false),
+  color: "", browse: null, since: "", roots: new Set(), folder: "", tags: new Set(), collection: null, similar: null,
   image: null, sort: "relevance", order: "desc",
   view: store.get("view", "grid"), fit: store.get("fit", false), zoom: store.get("zoom", 190),
   items: [], total: 0, loading: false, sel: new Set(), cur: -1, tagsList: [], cols: [], status: null, reqId: 0,
@@ -51,8 +52,10 @@ function params(extra = {}, forUrl = false) {
   if (S.since) p.set("since", S.since);
   if (S.folders.size) p.set("folder", [...S.folders].join("|"));
   if (S.group) p.set("group", "1");
+  if (S.color) p.set("color", S.color.replace("#", ""));
+  if (S.browse != null && S.browse !== "" && !S.q) { p.set("folder", S.browse); p.set("direct", "1"); }
   if (S.tags.size) p.set("tags", [...S.tags].join(","));
-  const browsing = !S.q && !S.collection && !S.similar && !S.image;
+  const browsing = !S.q && !S.collection && !S.similar && !S.image && !S.color;
   // browsing without a query falls back to newest-first, but that implicit default never goes into the URL
   const sort = S.sort === "relevance" && browsing && !forUrl ? "mtime" : S.sort;
   if (sort !== "relevance") { p.set("sort", sort); p.set("order", S.order); }
@@ -209,6 +212,7 @@ async function openPreview(it) {
   $("#pvPath").textContent = it.path;
   renderPvTags(it);
   renderVersions(it);
+  renderPvColors(it);
   const meta = [
     ["Typ", `${ICON[it.kind] || ""} ${(S.status?.labels || {})[it.kind] || it.kind} ${it.ext ? "(" + it.ext + ")" : ""}`],
     ["Rozmiar", fmtSize(it.size)],
@@ -386,8 +390,74 @@ async function loadStatus() {
 async function loadTags() { S.tagsList = await api("/api/tags"); renderTags(); }
 async function loadCols() { S.cols = await api("/api/collections"); renderCols(); }
 
+// ------------------------------------------------------------------ colour search
+const COLORS = [["Czerwony", "#d32f2f"], ["Bordowy", "#7b1e2b"], ["Pomarańczowy", "#f57c00"], ["Żółty", "#fbc02d"],
+  ["Limonkowy", "#9ccc3a"], ["Zielony", "#2e7d32"], ["Turkusowy", "#00acc1"], ["Błękitny", "#4fc3f7"],
+  ["Niebieski", "#1976d2"], ["Granatowy", "#1a237e"], ["Fioletowy", "#7b1fa2"], ["Różowy", "#e91e63"],
+  ["Brązowy", "#6d4c41"], ["Beżowy", "#d7c4a3"], ["Czarny", "#111111"], ["Szary", "#9e9e9e"], ["Biały", "#ffffff"]];
+function renderColors() {
+  $("#colors").innerHTML = COLORS.map(([n, h]) => `<button data-c="${h}" title="${n}" style="background:${h}" class="${S.color === h ? "on" : ""}"></button>`).join("") +
+    `<label class="custom" title="Własny kolor"><input type="color" value="${S.color || "#ff0000"}" id="colorPick">🎨</label>`;
+  $("#colorClear").hidden = !S.color;
+}
+function setColor(h) { S.color = S.color === h ? "" : h; renderColors(); if (S.color && S.sort !== "relevance") { S.sort = "relevance"; $("#sort").value = "relevance"; } search(); }
+$("#colors").addEventListener("click", e => { const b = e.target.closest("[data-c]"); if (b) setColor(b.dataset.c); });
+$("#colors").addEventListener("change", e => { if (e.target.id === "colorPick") { S.color = ""; setColor(e.target.value); } });
+$("#colorClear").addEventListener("click", () => { S.color = ""; renderColors(); search(); });
+async function renderPvColors(it) {
+  const box = $("#pvColors"); box.hidden = true;
+  if (!["image", "design", "raw", "video", "pdf"].includes(it.kind)) return;
+  try {
+    const pal = await api(`/api/colors/${it.id}`);
+    if (!pal.length || S.pv?.id !== it.id) return;
+    box.innerHTML = `<div class="subh">Kolory (kliknij, by znaleźć pliki w tym kolorze)</div><div class="pal">${pal.map(c =>
+      `<button data-c="${c.hex}" style="background:${c.hex};flex:${Math.max(c.share, .06)}" title="${c.hex} · ${Math.round(c.share * 100)}%"></button>`).join("")}</div>`;
+    box.hidden = false;
+    box.onclick = e => { const b = e.target.closest("[data-c]"); if (b) { S.color = ""; setColor(b.dataset.c); } };
+  } catch {}
+}
+
+// ------------------------------------------------------------------ folder browser
+async function browseTo(path) {
+  S.browse = path || "";
+  S.q = ""; $("#q").value = ""; resetMode();
+  S.sort = "name"; S.order = "asc"; $("#sort").value = "name"; $("#order").textContent = "↑";
+  if (path) noteFolder(path);
+  renderBrowse(null);
+  const d = await api("/api/browse?path=" + encodeURIComponent(S.browse));
+  if (S.browse !== (path || "")) return;
+  renderBrowse(d);
+  if (S.browse) search(); else { S.items = []; $("#results").innerHTML = ""; $("#count").textContent = ""; $("#empty").hidden = true; }
+}
+function renderBrowse(d) {
+  const on = S.browse != null;
+  $("#browseBar").hidden = !on; $("#ftiles").hidden = !on;
+  if (!on) return;
+  if (!d) { $("#ftiles").innerHTML = `<div class="ftload"><span class="spin"></span> Wczytuję folder…</div>`; return; }
+  $("#crumbs").innerHTML = `<a data-b="">🏠 Start</a>` + (d.crumbs || []).map(c => `<span>›</span><a data-b="${esc(c.path)}">${esc(c.name)}</a>`).join("");
+  $("#bUp").disabled = !S.browse; $("#bPin").hidden = $("#bFinder").hidden = !S.browse;
+  $("#ftiles").innerHTML = d.folders.map(f => `<div class="ftile" data-b="${esc(f.path)}" title="${esc(f.path)}">
+    <div class="fcollage n${Math.min(f.thumbs.length, 4)}">${f.thumbs.slice(0, 4).map(id => `<img loading="lazy" src="/api/thumb/${id}" onerror="this.remove()">`).join("") || '<span>📁</span>'}</div>
+    <div class="fname">📁 ${esc(f.name)}</div><div class="fcount">${f.count.toLocaleString("pl-PL")} plików</div></div>`).join("");
+  $("#ftiles").classList.toggle("empty", !d.folders.length);
+}
+function setTabSearch(tab) {  // search ↔ browse share the same grid, preview and filters
+  document.body.classList.toggle("mode-browse", tab === "browse");
+  if (tab === "browse") browseTo(S.browse || ""); else { S.browse = null; renderBrowse(null); search(); }
+}
+$("#crumbs").addEventListener("click", e => { const a = e.target.closest("[data-b]"); if (a) browseTo(a.dataset.b); });
+$("#ftiles").addEventListener("click", e => { const t = e.target.closest("[data-b]"); if (t) browseTo(t.dataset.b); });
+$("#bUp").addEventListener("click", () => {
+  if (!S.browse) return;
+  const up = S.browse.split("/").slice(0, -1).join("/");
+  browseTo(["", "/", "/Volumes"].includes(up) ? "" : up);
+});
+$("#bPin").addEventListener("click", () => S.browse && pinFolder(S.browse));
+$("#bFinder").addEventListener("click", () => S.browse && api("/api/open-folder", { method: "POST", json: { path: S.browse } }));
+
 // ------------------------------------------------------------------ pinned & recent folders
 function toggleFolder(path, multi) {
+  if (S.browse != null) return browseTo(path);
   if (multi) S.folders.has(path) ? S.folders.delete(path) : S.folders.add(path);
   else { const only = S.folders.size === 1 && S.folders.has(path); S.folders.clear(); if (!only) S.folders.add(path); }
   if (S.folders.has(path)) noteFolder(path);
@@ -518,6 +588,7 @@ if (!NATIVE) {  // plain Chrome: drag a card to the desktop/Finder downloads the
 // ------------------------------------------------------------------ events
 let qTimer;
 $("#q").addEventListener("input", e => {
+  if (S.browse) { S.folders = new Set([S.browse]); renderRoots(); }  // search inside the folder you are browsing
   S.q = e.target.value.trim();
   $("#results").classList.add("busy");  // instant feedback while the debounce waits
   resetMode();
@@ -730,6 +801,7 @@ addEventListener("keydown", e => {
   if ((e.key === "/" && !typing) || (e.key === "k" && e.metaKey)) { e.preventDefault(); $("#q").focus(); $("#q").select(); return; }
   if (typing) return;
   if (document.body.classList.contains("mode-clean")) return;  // Porządki tab has no grid shortcuts
+  if (S.browse != null && ((e.key === "ArrowUp" && e.metaKey) || e.key === "Backspace")) { e.preventDefault(); $("#bUp").click(); return; }
   if (!$("#lightbox").hidden) {
     if (e.key === "Escape" || e.key === "q" || e.key === " ") { e.preventDefault(); closeLightbox(); }
     else if (e.key === "ArrowRight" || e.key === "ArrowDown") { e.preventDefault(); lbStep(1); }
@@ -775,7 +847,7 @@ addEventListener("focus", () => { if (!document.activeElement || document.active
   $("#sort").value = S.sort; $("#order").textContent = S.order === "desc" ? "↓" : "↑";
   $$("#since button").forEach(b => b.classList.toggle("on", b.dataset.d === S.since));
   applyView();
-  applyGroupBtn();
+  applyGroupBtn(); renderColors();
   Promise.all([loadTags(), loadCols(), loadPins()]).finally(loadStatus);
   $("#q").focus();
 })();

@@ -8,10 +8,11 @@ const short = p => p.replace(HOME_RE, "~");
 
 function setTab(tab) {
   document.body.classList.toggle("mode-clean", tab === "clean");
+  if (tab !== "clean") setTabSearch(tab);
   $$("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === tab));
   $("#clean").hidden = tab !== "clean";
   try { localStorage.setItem("lupa.tab", tab); } catch {}
-  if (tab === "clean") loadCleanup(); else $("#q").focus();
+  if (tab === "clean") loadCleanup(); else if (tab === "search") $("#q").focus();
 }
 $("#tabs").addEventListener("click", e => { const b = e.target.closest("button"); if (b) setTab(b.dataset.tab); });
 

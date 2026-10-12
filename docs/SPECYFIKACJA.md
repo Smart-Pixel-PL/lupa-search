@@ -1,6 +1,6 @@
 # Lupa — specyfikacja aplikacji
 
-> Wersja 0.3.0 (beta) · październik 2026 · © Smart Pixel · licencja MIT
+> Wersja 0.5.0 (beta) · październik 2026 · © Smart Pixel · licencja MIT
 
 ## 1. Czym jest Lupa
 
@@ -188,6 +188,8 @@ Pełna lista jest w `lupa.toml`.
 - sortowanie: trafność, data modyfikacji/utworzenia, nazwa, rozmiar, typ
 - tagi z wyborem koloru, zmianą nazwy i tagowaniem wielu plików naraz; ulubione
 - kolekcje, czyli zapisane wyszukiwania (10 gotowych: Faktury, Umowy, Oferty, Logotypy, Zrzuty ekranu…)
+- **Przeglądaj**: nawigacja po folderach (okruszki, kafelki z kolażem 4 miniatur, liczba plików; dane z indeksu, działa offline)
+- **Kolor**: 17 kolorów + własny; paleta każdego pliku (do 6 kolorów, CIE Lab, z miniatury) liczona w tle (`lupa/colors.py`); trafność = udział obrazu bliski wybranemu kolorowi (ΔE)
 - „Podobne” do pliku, szukanie obrazem (przeciągnij, wklej ⌘V lub przycisk 🖼)
 - otwieranie pliku i pokazywanie w Finderze
 - status indeksowania z postępem, tempem, czasem do końca i ostrzeżeniem o braku uprawnień

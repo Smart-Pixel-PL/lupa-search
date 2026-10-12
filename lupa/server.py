@@ -23,6 +23,8 @@ STATIC = PROJECT / "static"
 app = FastAPI(title="Lupa")
 con = connect()
 vindex = VectorIndex()
+from .colors import ColorIndex  # noqa: E402
+cindex = ColorIndex()
 _emb = None      # text-only on CPU: ~60 ms per query even while the indexer owns the GPU
 _emb_vis = None  # vision model on the GPU, loaded on first image search
 _emb_lock = threading.Lock()
@@ -83,6 +85,7 @@ def _bg_loop():
             every = CFG.get("reindex_every_hours", 3)
             last = float(meta_get(c, "last_index", "0") or 0)
             _indexer_speed()
+            _colors_job(c)
             if not _cleanup_busy.locked():  # weekly Porządki scan / low-space alert, off the main loop
                 threading.Thread(target=_cleanup_periodic, daemon=True).start()
             if came_back and not indexer_running():  # e.g. NAS mounted again
@@ -164,6 +167,42 @@ def _indexer_speed():
             pass
 
 
+_colors_last = 0.0
+
+
+def _colors_job(c):
+    """Compute colour palettes for new thumbnails in a background CPU process (every few minutes)."""
+    global _colors_last
+    pidf = DATA / "colors.pid"
+    if pidf.exists():
+        try:
+            os.kill(int(pidf.read_text()), 0)
+            return
+        except (OSError, ValueError):
+            pidf.unlink(missing_ok=True)
+    if time.time() - _colors_last < 300:
+        return
+    _colors_last = time.time()
+    try:
+        cindex.refresh(c)
+    except Exception:
+        pass
+    if c.execute("SELECT 1 FROM files WHERE colors IS NULL AND thumb=1 AND kind IN "
+                 "('image','design','raw','video','pdf') LIMIT 1").fetchone():
+        prefix = ["nice", "-n", "10"] if _on_ac() else ["taskpolicy", "-b"]
+        subprocess.Popen(prefix + [sys.executable, "-m", "lupa.colors"], cwd=PROJECT,
+                         stdout=open(DATA / "colors.log", "a"), stderr=subprocess.STDOUT, start_new_session=True)
+
+
+def _color_ids(p, c):
+    """File ids that contain a meaningful share of the requested colour, best first."""
+    cindex.refresh(c)
+    ids, sc = cindex.score(p["color"])
+    keep = sc >= float(p.get("color_min", 0.12))
+    order = np.argsort(-sc[keep])
+    return ids[keep][order], sc[keep][order]
+
+
 def _pending_work(c) -> bool:
     return c.execute("SELECT 1 FROM files WHERE stage IN (0,1) LIMIT 1").fetchone() is not None
 
@@ -194,6 +233,9 @@ def _filters_sql(p):
         where.append("(" + " OR ".join("(f.path >= ? AND f.path < ?)" for _ in fs) + ")")
         for f in fs:
             args += [f + "/", f + "0"]  # '0' sorts right after '/': a fast range scan on the path index
+        if p.get("direct") == "1" and len(fs) == 1:  # browsing: only files directly in the folder
+            where.append("instr(substr(f.path, ?), '/') = 0")
+            args.append(len(fs[0]) + 2)
     if p.get("tags"):
         for t in [int(x) for x in p["tags"].split(",") if x]:
             where.append("f.id IN (SELECT file_id FROM file_tags WHERE tag_id=?)")
@@ -202,7 +244,7 @@ def _filters_sql(p):
 
 
 def _has_filters(p):
-    return any(p.get(k) for k in ("kinds", "exts", "roots", "since", "minsize", "folder", "tags"))
+    return any(p.get(k) for k in ("kinds", "exts", "roots", "since", "minsize", "folder", "tags", "color"))
 
 
 def _rows_to_items(c, rows, extra=None):
@@ -233,6 +275,8 @@ def _rank(c, qvec, p, keyword_q=None, exclude=None, vtypes=None, name_weight=0.8
     if _has_filters(p):
         w, a = _filters_sql(p)
         allowed = np.fromiter((r[0] for r in c.execute(f"SELECT f.id FROM files f WHERE {w}", a)), np.int64)
+        if p.get("color"):
+            allowed = np.intersect1d(allowed, _color_ids(p, c)[0])
     fids, z, rows = vindex.score(qvec, allowed, exclude, vtypes=vtypes, name_weight=name_weight)
     if not len(fids):
         return [], {}
@@ -383,6 +427,16 @@ def search(request: Request):
         vt = {"visual": {2}, "text": {1}, "content": {1, 2, 3}, "name": {0}}.get(p.get("vt"))
         ids, extra = _rank(c, emb().query(q), p, keyword_q=None if vt else q, vtypes=vt)
         items, total = _fetch(c, ids, extra, p)
+    elif p.get("color") and (p.get("sort") in (None, "", "relevance")):
+        # colour only: best colour match first
+        w, a = _filters_sql(p)
+        cids, csc = _color_ids(p, c)
+        ok = set(r[0] for r in c.execute(f"SELECT f.id FROM files f WHERE {w}", a)) if (w != "1=1") else None
+        order = [int(i) for i in cids if ok is None or int(i) in ok][:600]
+        share = dict(zip(map(int, cids[:5000]), map(float, csc[:5000])))
+        extra = {i: {"score": round(1 + 4 * share.get(i, 0), 2), "why": f"kolor {round(100 * share.get(i, 0))}%"}
+                 for i in order}
+        items, total = _fetch(c, order, extra, p)
     else:
         w, a = _filters_sql(p)
         sort = SORTS.get(p.get("sort"), "f.mtime")
@@ -606,6 +660,100 @@ def index_stop():
         except (OSError, ValueError):
             pass
     return {"ok": True}
+
+
+# folder browser --------------------------------------------------------------
+_browse_cache: dict = {}
+
+
+@app.get("/api/browse")
+def browse(path: str = ""):
+    """Subfolders of `path` (from the index, works offline) with file counts and up to 4 preview thumbnails."""
+    c = db()
+    if not path and ("", int(time.time() // 300)) in _browse_cache:
+        return _browse_cache[("", int(time.time() // 300))]
+    if not path:
+        tops = [(r, os.path.basename(r) or r) for r in CFG["roots"]]
+        tops += [(pl["path"], pl["name"]) for pl in CFG.get("places", [])]
+        tops += [(r["path"], r["name"]) for r in c.execute("SELECT path, name FROM pins ORDER BY pos")]
+        folders = []
+        for pth, name in tops:
+            folders.append({"name": name, "path": pth, "count": _count_under(c, pth), "thumbs": _sample_thumbs(c, pth)})
+        _browse_cache[("", int(time.time() // 300))] = res = {"path": "", "crumbs": [], "folders": folders}
+        return res
+    path = path.rstrip("/")
+    key = (path, meta_get(c, "vec_gen", "0"), int(time.time() // 300))
+    if key in _browse_cache:
+        return _browse_cache[key]
+    L = len(path) + 2
+    seg = "substr(substr(path, ?), 1, instr(substr(path, ?), '/') - 1)"
+    rows = c.execute(f"""SELECT {seg} AS seg, count(*) FROM files
+                         WHERE path >= ? AND path < ? AND instr(substr(path, ?), '/') > 0
+                         GROUP BY seg ORDER BY seg COLLATE NOCASE""", (L, L, path + "/", path + "0", L)).fetchall()
+    thumbs = {}
+    for seg_name, fid in c.execute(f"""SELECT seg, id FROM (
+            SELECT {seg} AS seg, id, ROW_NUMBER() OVER (PARTITION BY {seg} ORDER BY mtime DESC) rn
+            FROM files WHERE path >= ? AND path < ? AND instr(substr(path, ?), '/') > 0 AND thumb=1
+            AND kind IN ('image','design','raw','video','pdf')) WHERE rn <= 4""",
+                                   (L, L, L, L, path + "/", path + "0", L)):
+        thumbs.setdefault(seg_name, []).append(fid)
+    parts = [x for x in path.split("/") if x]
+    crumbs, acc = [], ""
+    for x in parts:
+        acc += "/" + x
+        if acc != "/Volumes":  # "Volumes" is just the mount point, not a place to browse
+            crumbs.append({"name": x, "path": acc})
+    direct = c.execute("SELECT count(*) FROM files WHERE path >= ? AND path < ? AND instr(substr(path, ?), '/') = 0",
+                       (path + "/", path + "0", L)).fetchone()[0]
+    res = {"path": path, "crumbs": crumbs, "parent": os.path.dirname(path) if len(parts) > 1 else "",
+           "files": direct, "exists": os.path.isdir(path),
+           "folders": [{"name": s_, "path": f"{path}/{s_}", "count": n, "thumbs": thumbs.get(s_, [])} for s_, n in rows]}
+    if len(_browse_cache) > 200:
+        _browse_cache.clear()
+    _browse_cache[key] = res
+    return res
+
+
+def _sample_thumbs(c, path):
+    return [r[0] for r in c.execute("""SELECT id FROM files WHERE path >= ? AND path < ? AND thumb=1
+                                       AND kind IN ('image','design') LIMIT 4""",
+                                    (path + "/", path + "0"))]
+
+
+@app.post("/api/open-folder")
+def open_folder(d: dict = Body(...)):
+    """Open an indexed folder in Finder (only folders Lupa knows about)."""
+    path = str(d.get("path", "")).rstrip("/")
+    if not path or not os.path.isdir(path) or not _count_under(db(), path):
+        raise HTTPException(404)
+    subprocess.Popen(["open", path])
+    return {"ok": True}
+
+
+@app.get("/api/colors/{fid}")
+def file_colors(fid: int):
+    """Palette of one file as hex + share (for the preview's colour chips)."""
+    import json as _j
+    r = db().execute("SELECT colors FROM files WHERE id=?", (fid,)).fetchone()
+    out = []
+    for L, A, B, f in (_j.loads(r[0]) if r and r[0] else []):
+        out.append({"hex": _lab_to_hex(L, A, B), "share": f})
+    return out
+
+
+def _lab_to_hex(L, a, b):
+    fy = (L + 16) / 116
+    fx, fz = fy + a / 500, fy - b / 200
+    def inv(t):
+        return t ** 3 if t ** 3 > 0.008856 else (t - 16 / 116) / 7.787
+    x, y, z = inv(fx) * 0.95047, inv(fy), inv(fz) * 1.08883
+    r_ = 3.2404542 * x - 1.5371385 * y - 0.4985314 * z
+    g_ = -0.9692660 * x + 1.8760108 * y + 0.0415560 * z
+    b_ = 0.0556434 * x - 0.2040259 * y + 1.0572252 * z
+    def g(u):
+        u = 1.055 * u ** (1 / 2.4) - 0.055 if u > 0.0031308 else 12.92 * u
+        return max(0, min(255, round(u * 255)))
+    return "#%02x%02x%02x" % (g(r_), g(g_), g(b_))
 
 
 # pinned folders ------------------------------------------------------------

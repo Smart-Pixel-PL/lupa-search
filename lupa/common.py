@@ -156,6 +156,9 @@ def connect(readonly=False) -> sqlite3.Connection:
         con.execute("PRAGMA journal_mode=WAL")
         _SCHEMA_READY = True
         con.executescript(SCHEMA)
+        cols = {r[1] for r in con.execute("PRAGMA table_info(files)")}
+        if "colors" not in cols:  # v0.5: dominant colours per file (JSON) for colour search
+            con.execute("ALTER TABLE files ADD COLUMN colors TEXT")
         if con.execute("SELECT count(*) FROM collections").fetchone()[0] == 0:
             con.executemany("INSERT INTO collections(name,query,kinds,icon,pos) VALUES(?,?,?,?,?)",
                             [(*c, i) for i, c in enumerate(DEFAULT_COLLECTIONS)])

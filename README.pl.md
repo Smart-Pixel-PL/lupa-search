@@ -35,6 +35,8 @@ Wpisz *„zdjęcie drużyny na sztucznej murawie”*, *„faktura za transport 2
 
 - 🔎 **Szukanie po znaczeniu:** semantyczne i po słowach kluczowych, w nazwach, folderach, treści dokumentów, obrazach, klatkach wideo i audio.
 - 🖼️ **Dla wzrokowców:** duże miniatury, szybki podgląd, pełny ekran (←/→), filmy odtwarzane po najechaniu i przewijane do pasującego momentu.
+- 📂 **Przeglądarka folderów:** chodzisz po folderach jak w Finderze, z miniaturami zawartości każdego folderu (działa też przy wyłączonym NAS-ie).
+- 🎨 **Szukanie po kolorze:** wybierasz kolor i dostajesz obrazy, projekty i filmy w tym kolorze; działa też w połączeniu z zapytaniem.
 - 🧲 **Szukanie obrazem:** przeciągnij lub wklej zdjęcie, żeby znaleźć podobne. Przycisk **„Podobne”** działa dla każdego pliku.
 - 🏷️ **Tagi i kolekcje:** kolorowe tagi (także dla wielu plików naraz), ulubione i zapisane wyszukiwania.
 - 🎛️ **Filtry i sortowanie:** typ, format (PSD, TIFF, Affinity, AI, SVG), data, dysk, skróty folderów (Pobrane, Biurko, Dokumenty, iCloud Drive), tagi.

@@ -13,6 +13,7 @@
     <div class="brand" title="Lupa — lokalna wyszukiwarka">🔎<span>Lupa</span></div>
     <nav class="tabs" id="tabs">
       <button data-tab="search" class="on">Szukaj</button>
+      <button data-tab="browse">Przeglądaj</button>
       <button data-tab="clean">Porządki <i id="cleanBadge" hidden></i></button>
     </nav>
     <div class="searchbox">
@@ -54,6 +55,10 @@
       <div id="formats" class="chips"></div>
     </section>
     <section>
+      <h4>Kolor <button id="colorClear" class="mini" title="Wyłącz filtr koloru" hidden>✕</button></h4>
+      <div id="colors" class="swatches big"></div>
+    </section>
+    <section>
       <h4>Kiedy</h4>
       <div id="since" class="chips">
         <button data-d="">Zawsze</button><button data-d="1">24 h</button><button data-d="7">7 dni</button>
@@ -79,6 +84,13 @@
   </aside>
 
   <main id="main">
+    <div class="browsebar" id="browseBar" hidden>
+      <button id="bUp" class="iconbtn" title="Folder wyżej (⌘↑)">↑</button>
+      <div class="crumbs" id="crumbs"></div>
+      <button id="bPin" class="iconbtn" title="Przypnij ten folder">📌</button>
+      <button id="bFinder" class="iconbtn" title="Otwórz w Finderze">🔍</button>
+    </div>
+    <div class="ftiles" id="ftiles" hidden></div>
     <div class="bar" id="bar">
       <span id="count"></span>
       <span class="spacer"></span>
@@ -110,6 +122,7 @@
         <button id="pvFolder">Ten folder</button>
         <button id="pvPin" title="Przypnij folder tego pliku w sekcji Gdzie">📌 Przypnij folder</button>
       </div>
+      <div class="pvcolors" id="pvColors" hidden></div>
       <div class="pvversions" id="pvVersions" hidden></div>
       <div class="pvtags" id="pvTags"></div>
       <dl class="pvmeta" id="pvMeta"></dl>

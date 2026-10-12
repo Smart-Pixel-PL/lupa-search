@@ -24,8 +24,8 @@ Wykreślamy po kolei: `- [x] ~~funkcja~~` = zrobione (z datą i wersją).
 - [x] ~~Pasek „Wersje” w podglądzie — szybkie przełączanie między wariantami~~ — v0.4.0 (12.10.2026)
 
 ## 4. Pod pracę graficzną
-- [ ] Przeglądarka folderów z miniaturami (nawigacja jak w Finderze)
-- [ ] Wyszukiwanie po kolorze (paleta → pliki w danym kolorze)
+- [x] ~~Przeglądarka folderów z miniaturami (nawigacja jak w Finderze)~~ — v0.5.0 (12.10.2026)
+- [x] ~~Wyszukiwanie po kolorze (paleta → pliki w danym kolorze)~~ — v0.5.0 (12.10.2026)
 
 ## 5. AI (lokalnie)
 - [ ] Pytania do dokumentów (Gemma 4 / Ollama) z odnośnikami do plików

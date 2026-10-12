@@ -37,6 +37,8 @@ Type *"photo of a football team on artificial turf"*, *"invoice for transport 20
 
 - 🔎 **Search by meaning.** Semantic and keyword search (hybrid ranking) across file names, folders, document text, images, video frames and audio.
 - 🖼️ **Built for visual people.** Large thumbnail grid, fast preview panel, full-screen viewer (←/→), and videos that play on hover and jump to the matching moment.
+- 📂 **Folder browser.** Browse folders like in Finder, with breadcrumbs and tiles showing a 4-thumbnail collage of each folder (works even when the NAS is offline).
+- 🎨 **Search by colour.** Pick a colour (17 presets or a custom one) to find images, designs and videos in that colour, alone or combined with a text query. The preview also shows each file's palette.
 - 🧲 **Search by image.** Drop or paste a picture to find visually similar files. **"Similar"** works on any file.
 - 🏷️ **Tags and collections.** Colored tags for many files at once, favorites, and saved searches (*Invoices*, *Contracts*, *Logos*, *Screenshots*, …).
 - 🎛️ **Filters and sorting.** By type, format (PSD, TIFF, Affinity, AI, SVG…), date, drive, folder shortcuts (Downloads, Desktop, Documents, iCloud Drive) and tags. Sort by relevance, date, name, size or type.

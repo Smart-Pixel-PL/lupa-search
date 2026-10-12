@@ -325,7 +325,8 @@ def embed_content(con, emb, limit=None):
         if len(ids) == 1:
             con.execute("UPDATE files SET stage=-1, error=? WHERE id=?",
                         ("Plik powoduje awarię biblioteki (pominięty, wyszukiwalny po nazwie)", ids[0]))
-            log(f"Kwarantanna: plik {ids[0]} powodował awarię — pominięty")
+            bad = con.execute("SELECT path FROM files WHERE id=?", (ids[0],)).fetchone()
+            log(f"Kwarantanna: {bad[0] if bad else ids[0]} powodował awarię — pominięty")
         elif ids:
             q = ",".join("?" * len(ids))
             con.execute(f"UPDATE files SET stage=-2 WHERE stage=1 AND id IN ({q})", ids)

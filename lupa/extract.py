@@ -18,6 +18,9 @@ except Exception:
 
 Image.MAX_IMAGE_PIXELS = 400_000_000
 SF_DATALESS = 0x40000000
+# MuPDF/PyMuPDF is not thread-safe: concurrent documents can abort the whole process with a C++ exception.
+import threading as _threading
+PDF_LOCK = _threading.Lock()
 THUMB_PX = 360
 EMBED_PX = 896
 MAX_TEXT = 24_000
@@ -153,6 +156,11 @@ def _textutil(path):
 
 
 def _pdf(path, ex: Extracted):
+    with PDF_LOCK:
+        _pdf_unlocked(path, ex)
+
+
+def _pdf_unlocked(path, ex: Extracted):
     import fitz
     doc = fitz.open(path)
     ex.meta["pages"] = doc.page_count
@@ -295,6 +303,7 @@ def quick_thumb(path: str, kind: str):
         return video_frame(path, dur * 0.08 if dur > 4 else 0.0, px=THUMB_PX * 2)
     if kind == "pdf":
         import fitz
+        PDF_LOCK.acquire()
         doc = fitz.open(path)
         try:
             p = doc[0]
@@ -303,6 +312,7 @@ def quick_thumb(path: str, kind: str):
             return Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
         finally:
             doc.close()
+            PDF_LOCK.release()
     return None
 
 

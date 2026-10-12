@@ -970,6 +970,45 @@ def _sample_thumbs(c, path):
                                     (path + "/", path + "0"))]
 
 
+_bg_made: set = set()  # files created by "Usuń tło" in this session (may be replaced by a retry)
+BG_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".heic", ".heif", ".tif", ".tiff", ".bmp", ".gif"}
+
+
+@app.post("/api/bgremove/{fid}")
+def bg_remove(fid: int, d: dict = Body(default={})):
+    """Make '<name> bez tła.png' next to the original (never touches the original) and index it right away."""
+    from .bgremove import remove_background
+    from .common import kind_of, root_of
+    from .extract import quick_thumb, save_thumb
+    r = db().execute("SELECT path, ext FROM files WHERE id=?", (fid,)).fetchone()
+    if not r or (r["ext"] or "").lower() not in BG_EXTS or not os.path.exists(r["path"]):
+        raise HTTPException(400, "usuwanie tła działa dla obrazów (PNG, JPG, WebP, HEIC, TIFF)")
+    old = str(d.get("replace") or "")
+    if old in _bg_made and os.path.exists(old):
+        os.remove(old)  # a retry with the other engine replaces our previous attempt, never anything else
+        _bg_made.discard(old)
+    try:
+        res = remove_background(r["path"], engine=str(d.get("engine") or "auto"))
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(500, f"nie udało się: {e}")
+    path = res["path"]
+    _bg_made.add(path)
+    st = os.stat(path)
+    c = connect()
+    c.execute("""INSERT INTO files(path,root,name,ext,kind,size,mtime,ctime,scan,stage) VALUES(?,?,?,?,?,?,?,?,0,0)
+                 ON CONFLICT(path) DO UPDATE SET size=excluded.size, mtime=excluded.mtime, stage=0""",
+              (path, root_of(path), os.path.basename(path), ".png", kind_of(path), st.st_size, st.st_mtime, st.st_mtime))
+    c.commit()
+    new_id = c.execute("SELECT id FROM files WHERE path=?", (path,)).fetchone()[0]
+    try:
+        save_thumb(quick_thumb(path, "image"), thumb_path(new_id))
+        c.execute("UPDATE files SET thumb=1 WHERE id=?", (new_id,))
+        c.commit()
+    except Exception:
+        pass
+    return {**res, "id": new_id, "name": os.path.basename(path)}
+
+
 @app.get("/api/transcript/{fid}")
 def transcript(fid: int):
     import json as _j

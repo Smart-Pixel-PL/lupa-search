@@ -215,6 +215,8 @@ async function openPreview(it) {
   renderVersions(it);
   renderPvColors(it);
   renderTranscript(it);
+  $("#pvBg").hidden = !BG_OK.has((it.ext || "").toLowerCase()) || it.offline;
+  if (!S.bgResult || S.bgResult.id !== it.id) $("#pvBgBar").hidden = true;
   const meta = [
     ["Typ", `${ICON[it.kind] || ""} ${(S.status?.labels || {})[it.kind] || it.kind} ${it.ext ? "(" + it.ext + ")" : ""}`],
     ["Rozmiar", fmtSize(it.size)],
@@ -411,6 +413,27 @@ function setColor(h) { S.color = S.color === h ? "" : h; renderColors(); if (S.c
 $("#colors").addEventListener("click", e => { const b = e.target.closest("[data-c]"); if (b) setColor(b.dataset.c); });
 $("#colors").addEventListener("change", e => { if (e.target.id === "colorPick") { S.color = ""; setColor(e.target.value); } });
 $("#colorClear").addEventListener("click", () => { S.color = ""; renderColors(); search(); });
+const BG_OK = new Set([".png", ".jpg", ".jpeg", ".webp", ".heic", ".heif", ".tif", ".tiff", ".bmp", ".gif"]);
+async function removeBg(srcId, engine = "auto", replace = "") {
+  const btn = $("#pvBg"); btn.disabled = true; btn.textContent = "✂️ Usuwam tło…";
+  try {
+    const r = await api(`/api/bgremove/${srcId}`, { method: "POST", json: { engine, replace } });
+    S.bgResult = { id: r.id, src: srcId, path: r.path, engine: r.engine };
+    const it = await api(`/api/file/${r.id}`);
+    await openPreview({ ...it, tags: it.tags || [] });
+    const other = r.engine === "logo" ? ["vision", "AI (Apple Vision) — do zdjęć i produktów"] : ["logo", "Logo (tło jednolite, zachowuje białe elementy)"];
+    $("#pvBgBar").innerHTML = `✅ Utworzono <b>${esc(r.name)}</b> metodą <b>${r.engine === "logo" ? "Logo" : "AI (Apple Vision)"}</b>.
+      Oryginał bez zmian. <button data-eng="${other[0]}">Spróbuj: ${esc(other[1])}</button>`;
+    $("#pvBgBar").hidden = false;
+    toast(`✂️ Gotowe: ${r.name}`, 3500);
+  } catch (e) { toast("Nie udało się usunąć tła: " + e.message, 5000); }
+  finally { btn.disabled = false; btn.textContent = "✂️ Usuń tło"; }
+}
+$("#pvBg").addEventListener("click", () => { const it = pvItem(); if (it) removeBg(it.id); });
+$("#pvBgBar").addEventListener("click", e => {
+  const b = e.target.closest("[data-eng]"); if (!b || !S.bgResult) return;
+  removeBg(S.bgResult.src, b.dataset.eng, S.bgResult.path);
+});
 async function renderTranscript(it) {
   const box = $("#pvAsr"); box.hidden = true;
   if (it.kind !== "audio" && it.kind !== "video") return;

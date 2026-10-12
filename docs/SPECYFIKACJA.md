@@ -1,6 +1,6 @@
 # Lupa — specyfikacja aplikacji
 
-> Wersja 0.6.0 (beta) · październik 2026 · © Smart Pixel · licencja MIT
+> Wersja 0.6.1 (beta) · październik 2026 · © Smart Pixel · licencja MIT
 
 ## 1. Czym jest Lupa
 
@@ -283,6 +283,7 @@ Przykład z pierwszego uruchomienia (MacBook Pro, 460 GB, 7% wolnego): **~52 GB 
 | **Zapytaj** | wyszukanie najlepszych fragmentów tekstu (także z OCR i transkrypcji) wektorami EmbeddingGemma 2 i słowami kluczowymi → odpowiedź modelu Gemma w Ollamie (`ask_model`, domyślnie `gemma3:4b`) strumieniowo, z numerami źródeł. Zabezpieczenie: pytania o konkretną nazwę lub numer (np. firmę, klub, numer faktury) dostają odpowiedź tylko z dokumentów, które ją zawierają (z uwzględnieniem odmiany); duplikaty dokumentów są pomijane; fragmenty źródeł są widoczne pod odpowiedzią. |
 | **OCR** | `tools/ocr.swift` (Apple Vision, `pl-PL`, Neural Engine, ~0,3 s/stronę). Kandydaci: skany PDF (brak warstwy tekstowej, do 3 stron) oraz obrazy podobne do „zeskanowanego dokumentu / zrzutu ekranu z tekstem” według wektorów Gemma (≥700 px, bez duplikatów). Tekst trafia do wyszukiwania pełnotekstowego i jako dodatkowe wektory. |
 | **Transkrypcja** | `lupa/transcribe.py`: Whisper large-v3-turbo (MLX), pierwsze 20 min nagrania, filtr ciszy/muzyki i typowych halucynacji; ~17× szybciej niż czas rzeczywisty na M2 Pro. Uruchamiana tylko, gdy indeksator nie pracuje (oba używają GPU). |
+| **Usuń tło** | `lupa/bgremove.py` + `tools/rmbg.swift`. Tryb automatyczny: gdy ≥85% pikseli brzegu ma jeden kolor → metoda „Logo”: usuwane jest tylko tło połączone z krawędzią obrazu (flood fill z tolerancją), więc białe elementy wewnątrz logo zostają; piksele krawędzi są „odmieszane” od koloru tła (color-to-alpha), bez białej obwódki. W przeciwnym razie Apple Vision (wycinanie obiektu, na urządzeniu). Wynik: `<nazwa> bez tła.png` obok oryginału (oryginał nietknięty); „Spróbuj inną metodą” podmienia tylko własny wynik. |
 | **Podpowiedzi tagów** | dla każdego tagu (≥2 pliki) średni wektor jego plików, osobno dla obrazów i dokumentów; plik dostaje propozycję, gdy jest co najmniej tak blisko jak typowy plik z tym tagiem. W menu tagu: „Znajdź pliki pasujące do tego tagu”. |
 
 ## 11. Technologie

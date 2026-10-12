@@ -33,6 +33,9 @@ Wykreślamy po kolei: `- [x] ~~funkcja~~` = zrobione (z datą i wersją).
 - [x] ~~Transkrypcja nagrań audio i wideo (lokalny Whisper)~~ — v0.6.0 — Whisper large-v3-turbo (MLX), uruchamiana po zakończeniu indeksowania (12.10.2026)
 - [x] ~~Podpowiedzi tagów~~ — v0.6.0 — uczone z Twoich tagów + „Znajdź pliki pasujące do tagu” (12.10.2026)
 
+## 5b. Grafika
+- [x] ~~Usuwanie tła z obrazów (logo od klientów) — kopia „<nazwa> bez tła.png” obok oryginału~~ — v0.6.1 (12.10.2026)
+
 ## 6. Wygoda i porządek
 - [ ] Mini okno wyszukiwania (⌥⌘L jak Spotlight)
 - [ ] Rozszerzenie Raycast

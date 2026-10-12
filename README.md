@@ -47,6 +47,7 @@ Type *"photo of a football team on artificial turf"*, *"invoice for transport 20
 - ✨ **Ask your files (local AI).** Ask a question in plain language and get an answer written by a local Gemma model in Ollama, based only on your documents, with numbered, clickable sources. A question about a specific name or number is answered only from documents that contain it.
 - 🔤 **OCR.** Text in scanned PDFs, screenshots and photos of documents becomes searchable (Apple Vision, on-device, Polish supported).
 - 🎙 **Transcripts.** Speech in audio and video is transcribed locally (Whisper large-v3-turbo on MLX) and searchable. Click a sentence to jump to that moment.
+- ✂️ **Remove background.** One click in the preview creates `<name> bez tła.png` next to the original. Flat-background logos use a precise edge-connected method that keeps white parts inside the logo and leaves no halo. Photos use Apple Vision subject lift. You can try the other method with one click.
 - 🏷 **Tag suggestions.** Lupa learns from how you tag and suggests tags for new files, and can find all files that fit a tag.
 - 🍏 **Native Mac app.** Dock icon, global hotkey **⌥⌘L**, starts at login, light and dark mode.
 - ⌨️ **Keyboard-first.** `/` search · arrows navigate · `Space` preview · `Q` full screen · `Enter` open · `⌘Enter` reveal in Finder · `S` similar · `T` tag · `F` favorite.

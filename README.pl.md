@@ -45,6 +45,7 @@ Wpisz *„zdjęcie drużyny na sztucznej murawie”*, *„faktura za transport 2
 - ✨ **Zapytaj swoje pliki:** pytasz własnymi słowami, a lokalna Gemma (Ollama) odpowiada wyłącznie na podstawie Twoich dokumentów i podaje klikalne źródła.
 - 🔤 **OCR:** tekst ze skanów PDF, zrzutów ekranu i zdjęć dokumentów jest wyszukiwalny (Apple Vision, po polsku, na urządzeniu).
 - 🎙 **Transkrypcje:** mowa z nagrań i filmów jest przepisywana lokalnie (Whisper) i wyszukiwalna. Kliknięcie zdania przewija nagranie do tego miejsca.
+- ✂️ **Usuń tło:** jedno kliknięcie w podglądzie tworzy obok kopię `<nazwa> bez tła.png`. Przy logotypach na jednolitym tle Lupa zachowuje białe elementy w środku logo i nie zostawia obwódki, przy zdjęciach używa Apple Vision.
 - 🏷 **Podpowiedzi tagów:** Lupa uczy się z Twoich tagów i proponuje je nowym plikom.
 - 🍏 **Natywna aplikacja:** ikona w Docku, skrót **⌥⌘L**, autostart, tryb jasny i ciemny.
 - ⌨️ **Skróty:** `/` szukaj · strzałki · `Spacja` podgląd · `Q` pełny ekran · `Enter` otwórz · `⌘Enter` pokaż w Finderze · `S` podobne · `T` taguj · `F` ulubione.

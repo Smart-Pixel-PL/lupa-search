@@ -326,13 +326,13 @@ function renderFormats() {
 }
 
 function renderRoots() {
-  $("#roots").innerHTML = (S.status?.roots || []).map(r => `<button class="item ${S.roots.has(r.path) ? "on" : ""}" data-r="${esc(r.path)}">
+  $("#roots").innerHTML = (S.status?.roots || []).map(r => `<button class="item ${(S.browse != null ? sideOn(r.path) : S.roots.has(r.path)) ? "on" : ""}" data-r="${esc(r.path)}">
     <span class="dot ${r.online ? "online" : "offline"}" title="${r.online ? "online" : "offline — wyniki z indeksu"}"></span>
     ${esc(r.path.split("/").pop() || r.path)}<span class="n">${r.count.toLocaleString("pl-PL")}</span></button>`).join("");
-  $("#roots").insertAdjacentHTML("beforeend", (S.status?.places || []).map(pl => `<button class="item ${S.folders.has(pl.path) ? "on" : ""}" data-place="${esc(pl.path)}" title="${esc(pl.path)}">
+  $("#roots").insertAdjacentHTML("beforeend", (S.status?.places || []).map(pl => `<button class="item ${sideOn(pl.path) ? "on" : ""}" data-place="${esc(pl.path)}" title="${esc(pl.path)}">
     <span>${esc(pl.icon || "📁")}</span>${esc(pl.name)}<span class="n">${pl.count.toLocaleString("pl-PL")}</span></button>`).join(""));
   const known = new Set([...(S.status?.places || []).map(p => p.path), ...S.pins.map(p => p.path)]);
-  const extra = [...S.folders].filter(f => !known.has(f));
+  const extra = S.browse != null ? [] : [...S.folders].filter(f => !known.has(f));
   const ff = $("#folderFilter");
   ff.hidden = !extra.length;
   ff.innerHTML = extra.map(f => `<div class="ffchip" title="${esc(f)}">📂 ${esc(f.split("/").pop())}
@@ -427,6 +427,7 @@ async function browseTo(path) {
   const d = await api("/api/browse?path=" + encodeURIComponent(S.browse));
   if (S.browse !== (path || "")) return;
   renderBrowse(d);
+  renderRoots();
   if (S.browse) search(); else { S.items = []; $("#results").innerHTML = ""; $("#count").textContent = ""; $("#empty").hidden = true; }
 }
 function renderBrowse(d) {
@@ -443,7 +444,7 @@ function renderBrowse(d) {
 }
 function setTabSearch(tab) {  // search ↔ browse share the same grid, preview and filters
   document.body.classList.toggle("mode-browse", tab === "browse");
-  if (tab === "browse") browseTo(S.browse || ""); else { S.browse = null; renderBrowse(null); search(); }
+  if (tab === "browse") browseTo(S.browse || ""); else { S.browse = null; renderBrowse(null); renderRoots(); search(); }
 }
 $("#crumbs").addEventListener("click", e => { const a = e.target.closest("[data-b]"); if (a) browseTo(a.dataset.b); });
 $("#ftiles").addEventListener("click", e => { const t = e.target.closest("[data-b]"); if (t) browseTo(t.dataset.b); });
@@ -463,8 +464,20 @@ function toggleFolder(path, multi) {
   if (S.folders.has(path)) noteFolder(path);
   renderRoots(); search();
 }
+// Sidebar highlight: in Przeglądaj it follows the folder you are in (deepest matching entry);
+// in Szukaj it shows the active folder filters.
+function sideOn(path) {
+  if (S.browse == null) return S.folders.has(path);
+  if (!S.browse) return false;
+  const all = [...CFG_ROOTS(), ...(S.status?.places || []).map(p => p.path), ...S.pins.map(p => p.path),
+    ...Object.keys(store.get("recentFolders", {}))];
+  const best = all.filter(p => S.browse === p || S.browse.startsWith(p + "/")).sort((a, b) => b.length - a.length)[0];
+  return best === path;
+}
+const CFG_ROOTS = () => (S.status?.roots || []).map(r => r.path);
+
 function renderPins() {
-  $("#pins").innerHTML = S.pins.map(p => `<button class="item ${S.folders.has(p.path) ? "on" : ""} ${p.exists ? "" : "dim"}" data-pin="${esc(p.path)}" data-pid="${p.id}" title="${esc(p.path)}${p.exists ? "" : " (niedostępny)"}">
+  $("#pins").innerHTML = S.pins.map(p => `<button class="item ${sideOn(p.path) ? "on" : ""} ${p.exists ? "" : "dim"}" data-pin="${esc(p.path)}" data-pid="${p.id}" title="${esc(p.path)}${p.exists ? "" : " (niedostępny)"}">
     <span>${esc(p.icon || "📌")}</span>${esc(p.name)}<span class="n">${p.count.toLocaleString("pl-PL")}</span></button>`).join("");
 }
 async function loadPins() { try { S.pins = await api("/api/pins"); } catch { S.pins = []; } renderRoots(); }
@@ -477,11 +490,11 @@ function noteFolder(path) {  // remember folders you browse (per device)
 }
 let recentCounts = {};
 function renderRecent() {
-  const pinned = new Set([...S.pins.map(p => p.path), ...(S.status?.places || []).map(p => p.path)]);
+  const pinned = new Set([...S.pins.map(p => p.path), ...(S.status?.places || []).map(p => p.path), ...CFG_ROOTS()]);
   const r = Object.entries(store.get("recentFolders", {})).filter(([p]) => !pinned.has(p))
     .sort((a, b) => (b[1].n * 2 + b[1].t / 8.64e7) - (a[1].n * 2 + a[1].t / 8.64e7)).slice(0, 5);
   $("#recentWrap").hidden = !r.length;
-  $("#recent").innerHTML = r.map(([p]) => `<button class="item ${S.folders.has(p) ? "on" : ""}" data-recent="${esc(p)}" title="${esc(p)}">
+  $("#recent").innerHTML = r.map(([p]) => `<button class="item ${sideOn(p) ? "on" : ""}" data-recent="${esc(p)}" title="${esc(p)}">
     <span>🕘</span>${esc(p.split("/").pop() || p)}<span class="n">${recentCounts[p] != null ? recentCounts[p].toLocaleString("pl-PL") : ""}</span>
     <span class="x" data-pinr="${esc(p)}" title="Przypnij">📌</span></button>`).join("");
   const need = r.map(([p]) => p).filter(p => recentCounts[p] == null);
@@ -631,6 +644,7 @@ $("#roots").addEventListener("click", e => {
   const pl = e.target.closest("[data-place]");
   if (pl) { toggleFolder(pl.dataset.place, e.metaKey || e.shiftKey); return; }
   const b = e.target.closest("[data-r]"); if (!b) return;
+  if (S.browse != null) return browseTo(b.dataset.r);  // Przeglądaj: open the drive
   const r = b.dataset.r; S.roots.has(r) ? S.roots.delete(r) : S.roots.add(r); renderRoots(); search();
 });
 $("#folderFilter").addEventListener("click", e => {

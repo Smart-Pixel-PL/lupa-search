@@ -87,6 +87,7 @@ def _bg_loop():
             every = CFG.get("reindex_every_hours", 3)
             last = float(meta_get(c, "last_index", "0") or 0)
             _indexer_speed()
+            _indexer_hang_check(c)
             _colors_job(c)
             _ocr_job(c)
             _asr_job(c)
@@ -147,7 +148,8 @@ def start_indexer(force_crawl=False):
     prefix = ["nice", "-n", "10"] if ac or not CFG.get("fast_on_ac", True) else ["taskpolicy", "-b"]
     cmd = prefix + [sys.executable, "-m", "lupa.indexer"] + (["--force-crawl"] if force_crawl else [])
     (DATA / "indexer.mode").write_text("ac" if ac else "battery")
-    _indexer = subprocess.Popen(cmd, cwd=PROJECT, stdout=logf, stderr=subprocess.STDOUT,
+    env = {**os.environ, "OPENBLAS_NUM_THREADS": "1"}  # see indexer.py: avoids a fork() deadlock
+    _indexer = subprocess.Popen(cmd, cwd=PROJECT, stdout=logf, stderr=subprocess.STDOUT, env=env,
                                 start_new_session=True)  # survives server restarts
     return True
 
@@ -177,6 +179,31 @@ def _indexer_speed():
             os.kill(int((DATA / "indexer.pid").read_text()), signal.SIGTERM)  # bg loop restarts it in the new mode
         except (OSError, ValueError):
             pass
+
+
+HANG_MINUTES = 30
+
+
+def _indexer_hang_check(c):
+    """A live but frozen indexer (no progress heartbeat for 30 min) is killed with its children;
+    the background loop then starts it again and it resumes where it stopped."""
+    if not indexer_running():
+        return
+    try:
+        st = json.loads(meta_get(c, "status", "{}") or "{}")
+        pid = int((DATA / "indexer.pid").read_text())
+        started = (DATA / "indexer.pid").stat().st_mtime
+    except (OSError, ValueError):
+        return
+    limit = time.time() - HANG_MINUTES * 60
+    if started > limit or st.get("updated", time.time()) > limit:
+        return
+    print(f"indexer: no progress for {HANG_MINUTES} min (at {st.get('current', '?')}) — restarting", flush=True)
+    try:
+        os.killpg(pid, signal.SIGKILL)  # own session → its ffmpeg/OCR children go too
+    except OSError:
+        pass
+    (DATA / "indexer.pid").unlink(missing_ok=True)
 
 
 _colors_last = 0.0

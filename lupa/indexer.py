@@ -3,6 +3,11 @@
 Run:  uv run python -m lupa.indexer            (full incremental run)
       uv run python -m lupa.indexer --crawl-only
 """
+import os
+
+# OpenBLAS worker threads + fork() (ffmpeg, OCR… via subprocess) can deadlock: its at-fork handler joins
+# threads that never finish. One BLAS thread is plenty here — the heavy maths runs on the GPU.
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 import argparse
 import json
 import os

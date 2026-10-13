@@ -187,6 +187,7 @@ Pełna lista jest w `lupa.toml`.
 - pełny ekran z przewijaniem strzałkami (`Q`)
 - najechanie na film odtwarza podgląd
 - filtry: typ pliku, **format** (PSD, TIFF, Affinity `.af/.afdesign/.afphoto/.afpub`, AI, SVG — konfigurowalne), czas, dysk, skróty folderów (Pobrane, Biurko, Dokumenty, iCloud Drive), konkretny folder, tagi
+- **Szukanie folderów po nazwie**: nad wynikami pojawiają się foldery, których nazwa pasuje do zapytania (wielkość liter i polskie znaki bez znaczenia; każde słowo może być początkiem słowa w nazwie: „karol kos” → `Karol Kosk`). Kolejność: dokładna nazwa, nazwa zaczyna się od zapytania, wszystkie słowa, fragment nazwy; w Przeglądaj najpierw podfoldery bieżącego folderu. Kliknięcie otwiera folder w Przeglądaj. W Przeglądaj wpisanie zapytania przełącza sortowanie plików na trafność (`/api/folders/find`)
 - **Gdzie**: kliknięcie dodaje lub odejmuje miejsce (dyski, Pobrane, Biurko, przypięte foldery…) — można zaznaczyć kilka naraz i wyniki pochodzą z każdego z nich; ⌥-klik zostawia tylko jedno miejsce, „wszystkie” czyści wybór
 - sortowanie: trafność, data modyfikacji/utworzenia, nazwa, rozmiar, typ
 - tagi z wyborem koloru, zmianą nazwy i tagowaniem wielu plików naraz; ulubione

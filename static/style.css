@@ -404,3 +404,11 @@ body.mode-ask #results, body.mode-ask #more, body.mode-ask #empty, body.mode-ask
 .un-head .seg button { width: auto; height: auto; white-space: nowrap; }
 .mini.where-all { font-size: 11.5px; margin-left: auto; color: var(--accent); }
 .mini.where-all + .mini { margin-left: 4px; }
+
+/* folders matching the query */
+.fhits { margin: 4px 0 14px; }
+.fhits-h { font-size: 13px; font-weight: 600; color: var(--muted); margin: 0 0 8px; }
+.fhits-h small { font-weight: 400; }
+.fhits .ftiles { margin: 0; }
+.fhits .fcount { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ftiles.qhide { display: none; }

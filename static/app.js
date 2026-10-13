@@ -80,6 +80,7 @@ async function search(reset = true) {
     $("#count").innerHTML = `<span class="spin"></span> ${what ? "Szukam " + esc(what) + "…" : "Wczytuję…"}`;
     $("#results").classList.add("busy");
   }
+  if (reset) folderHits();
   try {
     let r;
     const p = params({ offset, limit: 120 });
@@ -469,6 +470,7 @@ async function browseTo(path) {
   S.q = ""; $("#q").value = ""; resetMode();
   S.sort = "name"; S.order = "asc"; $("#sort").value = "name"; $("#order").textContent = "↑";
   if (path) noteFolder(path);
+  $("#fhits").hidden = true; $("#ftiles").classList.remove("qhide");
   renderBrowse(null);
   const d = await api("/api/browse?path=" + encodeURIComponent(S.browse));
   if (S.browse !== (path || "")) return;
@@ -476,6 +478,30 @@ async function browseTo(path) {
   renderRoots();
   if (S.browse) search(); else { S.items = []; $("#results").innerHTML = ""; $("#count").textContent = ""; $("#empty").hidden = true; }
 }
+// Folders whose name matches the query, shown above the files (Szukaj and Przeglądaj)
+let fhitSeq = 0;
+async function folderHits() {
+  const id = ++fhitSeq, q = S.q;
+  const show = !!q && !S.image && !S.similar;
+  $("#ftiles").classList.toggle("qhide", show && S.browse != null);  // while typing in Przeglądaj: matches replace subfolders
+  if (!show) { $("#fhits").hidden = true; return; }
+  let d;
+  try { d = await api(`/api/folders/find?q=${encodeURIComponent(q)}&within=${encodeURIComponent(S.browse || "")}&limit=${S.browse != null ? 24 : 8}`); }
+  catch { return; }
+  if (id !== fhitSeq) return;
+  const fs = d.folders || [];
+  $("#fhits").hidden = !fs.length;
+  $("#fhitsH").innerHTML = `📁 Foldery pasujące do „${esc(q)}”` + (d.total > fs.length ? ` <small>· ${fs.length} z ${d.total}</small>` : "");
+  $("#fhitTiles").innerHTML = fs.map(f => `<div class="ftile" data-b="${esc(f.path)}" title="${esc(f.path)}">
+    <div class="fcollage n${Math.min(f.thumbs.length, 4)}">${f.thumbs.slice(0, 4).map(i => `<img loading="lazy" src="/api/thumb/${i}" onerror="this.remove()">`).join("") || '<span>📁</span>'}</div>
+    <div class="fname">📁 ${esc(f.name)}</div><div class="fcount">${f.count.toLocaleString("pl-PL")} plików · ${esc(f.parent.replace(/^\/Volumes\//, "").replace(/^\/Users\/[^/]+/, "~"))}</div></div>`).join("");
+}
+$("#fhitTiles").addEventListener("click", e => {
+  const t = e.target.closest("[data-b]"); if (!t) return;
+  if (S.browse != null) return browseTo(t.dataset.b);
+  S.browse = t.dataset.b; setTab("browse");  // from Szukaj: open the folder in Przeglądaj
+});
+
 function renderBrowse(d) {
   const on = S.browse != null;
   $("#browseBar").hidden = !on; $("#ftiles").hidden = !on;
@@ -492,7 +518,7 @@ function setTabSearch(tab) {  // search ↔ browse share the same grid, preview 
   document.body.classList.toggle("mode-browse", tab === "browse");
   document.body.classList.toggle("mode-ask", tab === "ask");
   $("#askView").hidden = tab !== "ask";
-  if (tab === "ask") { S.browse = null; renderBrowse(null); renderRoots(); setTimeout(() => $("#askQ").focus(), 30); return; }
+  if (tab === "ask") { S.browse = null; $("#fhits").hidden = true; renderBrowse(null); renderRoots(); setTimeout(() => $("#askQ").focus(), 30); return; }
   if (tab === "browse") browseTo(S.browse || ""); else { S.browse = null; renderBrowse(null); renderRoots(); search(); }
 }
 $("#crumbs").addEventListener("click", e => { const a = e.target.closest("[data-b]"); if (a) browseTo(a.dataset.b); });
@@ -711,6 +737,10 @@ let qTimer;
 $("#q").addEventListener("input", e => {
   if (S.browse) { S.folders = new Set([S.browse]); renderRoots(); }  // search inside the folder you are browsing
   S.q = e.target.value.trim();
+  if (S.browse != null) {  // Przeglądaj: best matches first while typing, A→Z again when the query is cleared
+    S.sort = S.q ? "relevance" : "name"; S.order = S.q ? "desc" : "asc";
+    $("#sort").value = S.sort; $("#order").textContent = S.q ? "↓" : "↑";
+  }
   $("#results").classList.add("busy");  // instant feedback while the debounce waits
   resetMode();
   if (S.q && S.sort !== "relevance") { /* keep user's sort */ }

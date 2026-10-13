@@ -6,6 +6,7 @@ import subprocess
 import sys
 import threading
 import time
+import unicodedata
 import json
 import re
 import shutil
@@ -15,7 +16,7 @@ from fastapi import Body, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from .common import (CFG, DATA, DEFAULT_FORMATS, KIND_LABELS, PROJECT, V_VISUAL, connect, meta_get, meta_set, root_online,
+from .common import (CFG, DATA, DEFAULT_FORMATS, KIND_LABELS, PROJECT, V_VISUAL, connect, meta_get, meta_set, nfc, root_online,
                      thumb_path)
 from .search import REASONS, VectorIndex, keyword_hits
 
@@ -1097,6 +1098,77 @@ def browse(path: str = ""):
         _browse_cache.clear()
     _browse_cache[key] = res
     return res
+
+
+# folder search by name ("karol kos" → …/Wizualizacje Zina/Karol Kosk) -------------------------
+_fold_tr = str.maketrans("łŁ", "lL")
+_fidx = {"at": 0.0, "n": -1, "items": [], "lock": threading.Lock()}
+
+
+def _fold_key(s: str) -> str:
+    """lower-case, no Polish diacritics: 'Łoś Kośk' → 'los kosk'."""
+    s = unicodedata.normalize("NFKD", (s or "").translate(_fold_tr))
+    return "".join(ch for ch in s if not unicodedata.combining(ch)).lower()
+
+
+def _folder_index(c):
+    """Every folder that holds indexed files (with all its parent folders) and how many files are under it.
+    Built from the index in ~1-2 s, rebuilt at most every 5 min when the number of files changed."""
+    n = c.execute("SELECT max(id) FROM files").fetchone()[0] or 0
+    if _fidx["items"] and (n == _fidx["n"] or time.time() - _fidx["at"] < 300):
+        return _fidx["items"]
+    with _fidx["lock"]:
+        if _fidx["items"] and time.time() - _fidx["at"] < 5:
+            return _fidx["items"]
+        counts: dict = {}
+        roots = sorted(CFG["roots"], key=len, reverse=True)
+        for (pth,) in c.execute("SELECT path FROM files WHERE missing = 0"):
+            d = pth.rsplit("/", 1)[0]
+            root = next((r for r in roots if pth.startswith(r.rstrip("/") + "/")), None)
+            stop = (root or "/").rstrip("/")
+            while d and len(d) > len(stop):
+                counts[d] = counts.get(d, 0) + 1
+                d = d.rsplit("/", 1)[0]
+        items = []
+        for d, k in counts.items():
+            name = nfc(d.rsplit("/", 1)[-1])
+            key = _fold_key(name)
+            items.append((key, re.findall(r"[0-9a-z]+", key), d, name, k))
+        _fidx.update(items=items, n=n, at=time.time())
+    return _fidx["items"]
+
+
+@app.get("/api/folders/find")
+def folders_find(q: str = "", within: str = "", limit: int = 12):
+    """Folders whose NAME matches the query: exact name > name starts with it > every word is the start of a word
+    in the name ('karol kos' → 'Karol Kosk') > the text appears in the name. Bigger folders first among equals;
+    with `within` (the folder being browsed), its subfolders come first."""
+    qk = _fold_key(nfc(q)).strip()
+    toks = re.findall(r"[0-9a-z]+", qk)
+    if not toks:
+        return {"folders": []}
+    c = db()
+    within = within.rstrip("/")
+    compact = "".join(toks)
+    hits = []
+    for key, words, path, name, count in _folder_index(c):
+        if key == qk:
+            sc = 100
+        elif key.startswith(qk):
+            sc = 80
+        elif all(any(w.startswith(t) for w in words) for t in toks):
+            sc = 60
+        elif compact in "".join(words):
+            sc = 40
+        else:
+            continue
+        if within and path.startswith(within + "/"):
+            sc += 25
+        hits.append((sc, count, path, name))
+    hits.sort(key=lambda h: (-h[0], -h[1], len(h[2])))
+    out = [{"name": name, "path": path, "count": count, "parent": os.path.dirname(path),
+            "thumbs": _sample_thumbs(c, path)} for sc, count, path, name in hits[:max(1, min(limit, 50))]]
+    return {"folders": out, "total": len(hits)}
 
 
 def _sample_thumbs(c, path):

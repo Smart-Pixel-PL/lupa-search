@@ -77,7 +77,7 @@ Odinstalowanie: `./uninstall.sh`
 
 ## Użytkowanie
 
-Otwórz **Lupę** z Launchpada albo naciśnij **⌥⌘L**. Pierwsze indeksowanie rusza samo: najpierw skan i nazwy (po kilku minutach wszystko da się znaleźć po nazwie), potem miniatury, a na końcu analiza treści, która przy dużych zbiorach trwa kilka godzin. Indeksowanie działa z najniższym priorytetem systemowym, więc nie spowalnia pracy na Macu. Po restarcie wznawia pracę od miejsca, w którym stanęło, dyski sieciowe skanuje najwyżej raz na dobę, a na baterii wstrzymuje analizę. Można je też wstrzymać w lewym dolnym rogu.
+Otwórz **Lupę** z Launchpada albo naciśnij **⌥⌘L**. Pierwsze indeksowanie rusza samo: najpierw skan i nazwy (po kilku minutach wszystko da się znaleźć po nazwie), potem miniatury, a na końcu analiza treści, która przy dużych zbiorach trwa kilka godzin. Indeksowanie działa z najniższym priorytetem systemowym, więc nie spowalnia pracy na Macu. Po restarcie wznawia pracę od miejsca, w którym stanęło, dyski sieciowe skanuje najwyżej raz w tygodniu, a na baterii wstrzymuje analizę. Można je też wstrzymać w lewym dolnym rogu.
 
 Konfiguracja jest w pliku `lupa.toml` w folderze projektu (powstaje z [`lupa.example.toml`](lupa.example.toml)). Ustawisz w nim foldery do indeksowania (np. dysk sieciowy `"/Volumes/NAS"`), skróty folderów, wykluczenia i jakość analizy obrazów.
 

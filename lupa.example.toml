@@ -14,7 +14,7 @@ places = [
 ]
 
 # Full scan of network drives (NAS) at most every N hours — it is slow, so not on every start.
-network_rescan_hours = 24
+network_rescan_hours = 168        # pełny skan NAS raz w tygodniu (Mac: indeksowanie na żywo)
 
 # Content analysis (GPU) only on mains power; pauses on battery.
 pause_on_battery = true

@@ -106,7 +106,7 @@ Internet był potrzebny tylko raz, do pobrania modelu.
 **Indeksowanie na żywo (v0.6.2).** `lupa/live.py` nasłuchuje zmian na dyskach lokalnych (FSEvents): nowy, zmieniony, przeniesiony lub usunięty plik trafia do wyszukiwarki po ok. 4 s (wektor nazwy + wyszukiwanie pełnotekstowe + miniatura od razu; analizę treści robi potem indeksator). Te same reguły pomijania co przy pełnym skanie.
 
 **Harmonogram indeksowania.** Po starcie indeksator wznawia przerwaną pracę (bez ponownego skanu). Dysk lokalny
-skanowany jest co `reindex_every_hours` (sekundy), dyski sieciowe najwyżej raz na `network_rescan_hours` (domyślnie 24 h;
+skanowany jest co `reindex_every_hours` (sekundy), dyski sieciowe najwyżej raz na `network_rescan_hours` (domyślnie 168 h, czyli raz w tygodniu;
 przycisk „Indeksuj teraz” wymusza pełny skan). Indeksator działa w trybie macOS *background QoS* (`taskpolicy -b`:
 rdzenie energooszczędne i dławione I/O), więc nie spowalnia pracy na Macu, a na zasilaniu bateryjnym wstrzymuje analizę treści.
 

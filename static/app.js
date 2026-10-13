@@ -369,14 +369,17 @@ function renderStatus() {
   const st = s.stages || {};
   const totalFiles = Object.values(s.kinds || {}).reduce((a, b) => a + b, 0);
   const pending = (st[0] || 0) + (st[1] || 0);
-  const pct = ix.total ? Math.min(100, (ix.done / ix.total) * 100) : 0;
+  // folder scan has no known total: compare with the number of files already in the index instead
+  const scanning = ix.running && !ix.total && ix.done;
+  const pct = ix.total ? Math.min(100, (ix.done / ix.total) * 100) : scanning && totalFiles ? Math.min(99, ix.done / totalFiles * 100) : 0;
   const eta = ix.rate && ix.total ? Math.max(0, (ix.total - ix.done) / ix.rate) : 0;
   const etaS = eta > 3600 ? `~${(eta / 3600).toFixed(1)} h` : eta > 60 ? `~${Math.round(eta / 60)} min` : eta ? "<1 min" : "";
   $("#status").innerHTML = `
     <div><b>${totalFiles.toLocaleString("pl-PL")}</b> plików · ${(s.vectors || 0).toLocaleString("pl-PL")} wektorów</div>
     ${ix.running ? `<div style="margin-top:6px">⏳ ${esc(ix.phase || "")}</div>
       <div class="prog"><i style="width:${pct}%"></i></div>
-      <div>${(ix.done || 0).toLocaleString("pl-PL")} / ${(ix.total || 0).toLocaleString("pl-PL")} ${ix.rate ? `· ${ix.rate}/s` : ""} ${etaS}</div>
+      <div>${scanning ? `przejrzano ${ix.done.toLocaleString("pl-PL")} z ok. ${totalFiles.toLocaleString("pl-PL")} plików`
+        : `${(ix.done || 0).toLocaleString("pl-PL")} / ${(ix.total || 0).toLocaleString("pl-PL")} ${ix.rate ? `· ${ix.rate}/s` : ""} ${etaS}`}</div>
       <div class="cur" title="${esc(ix.current)}">${esc(ix.current || "")}</div>
       <button id="ixStop">Wstrzymaj</button>` :
       `<div style="margin-top:4px">${pending ? `Do przeanalizowania: ${pending.toLocaleString("pl-PL")}` : "✅ Indeks aktualny"}</div>

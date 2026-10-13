@@ -306,10 +306,6 @@ def _filters_sql(p):
         ks = [k for k in p["kinds"].split(",") if k]
         where.append(f"f.kind IN ({','.join('?' * len(ks))})")
         args += ks
-    if p.get("roots"):
-        rs = [r for r in p["roots"].split("|") if r]
-        where.append(f"f.root IN ({','.join('?' * len(rs))})")
-        args += rs
     if p.get("since"):
         where.append("f.mtime >= ?")
         args.append(time.time() - float(p["since"]) * 86400)
@@ -320,11 +316,17 @@ def _filters_sql(p):
     if p.get("minsize"):
         where.append("f.size >= ?")
         args.append(int(p["minsize"]))
-    if p.get("folder"):  # one or more folders, "|"-separated — each includes its subfolders
-        fs = [f.rstrip("/") for f in p["folder"].split("|") if f]
-        where.append("(" + " OR ".join("(f.path >= ? AND f.path < ?)" for _ in fs) + ")")
+    # "Gdzie": selected drives and folders add up (files from ANY of them); a folder includes its subfolders
+    rs = [r for r in (p.get("roots") or "").split("|") if r]
+    fs = [f.rstrip("/") for f in (p.get("folder") or "").split("|") if f]
+    if rs or fs:
+        ors = [f"f.root IN ({','.join('?' * len(rs))})"] if rs else []
+        args += rs
         for f in fs:
+            ors.append("(f.path >= ? AND f.path < ?)")
             args += [f + "/", f + "0"]  # '0' sorts right after '/': a fast range scan on the path index
+        where.append("(" + " OR ".join(ors) + ")")
+    if fs:
         if p.get("direct") == "1" and len(fs) == 1:  # browsing: only files directly in the folder
             where.append("instr(substr(f.path, ?), '/') = 0")
             args.append(len(fs[0]) + 2)

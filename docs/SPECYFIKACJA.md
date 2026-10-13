@@ -187,6 +187,7 @@ Pełna lista jest w `lupa.toml`.
 - pełny ekran z przewijaniem strzałkami (`Q`)
 - najechanie na film odtwarza podgląd
 - filtry: typ pliku, **format** (PSD, TIFF, Affinity `.af/.afdesign/.afphoto/.afpub`, AI, SVG — konfigurowalne), czas, dysk, skróty folderów (Pobrane, Biurko, Dokumenty, iCloud Drive), konkretny folder, tagi
+- **Gdzie**: kliknięcie dodaje lub odejmuje miejsce (dyski, Pobrane, Biurko, przypięte foldery…) — można zaznaczyć kilka naraz i wyniki pochodzą z każdego z nich; ⌥-klik zostawia tylko jedno miejsce, „wszystkie” czyści wybór
 - sortowanie: trafność, data modyfikacji/utworzenia, nazwa, rozmiar, typ
 - tagi z wyborem koloru, zmianą nazwy i tagowaniem wielu plików naraz; ulubione
 - kolekcje, czyli zapisane wyszukiwania (10 gotowych: Faktury, Umowy, Oferty, Logotypy, Zrzuty ekranu…)

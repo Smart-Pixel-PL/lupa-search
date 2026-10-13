@@ -346,6 +346,7 @@ function renderRoots() {
   ff.hidden = !extra.length;
   ff.innerHTML = extra.map(f => `<div class="ffchip" title="${esc(f)}">📂 ${esc(f.split("/").pop())}
     <a data-pinf="${esc(f)}" title="Przypnij">📌</a><a data-unf="${esc(f)}" title="Usuń filtr">✕</a></div>`).join("");
+  $("#whereAll").hidden = S.browse != null || !(S.roots.size || S.folders.size);
   renderPins(); renderRecent();
 }
 
@@ -563,10 +564,11 @@ $("#askThread").addEventListener("click", e => {
 });
 
 // ------------------------------------------------------------------ pinned & recent folders
-function toggleFolder(path, multi) {
+// Click adds/removes a place (several can be on at once); ⌥-click keeps only that one.
+function toggleFolder(path, only) {
   if (S.browse != null) return browseTo(path);
-  if (multi) S.folders.has(path) ? S.folders.delete(path) : S.folders.add(path);
-  else { const only = S.folders.size === 1 && S.folders.has(path); S.folders.clear(); if (!only) S.folders.add(path); }
+  if (only) { S.roots.clear(); S.folders = new Set([path]); }
+  else S.folders.has(path) ? S.folders.delete(path) : S.folders.add(path);
   if (S.folders.has(path)) noteFolder(path);
   renderRoots(); search();
 }
@@ -631,11 +633,11 @@ function pinMenu(x, y, pid) {
   };
 }
 $("#addPin").addEventListener("click", () => pinFolder());
-$("#pins").addEventListener("click", e => { const b = e.target.closest("[data-pin]"); if (b) toggleFolder(b.dataset.pin, e.metaKey || e.shiftKey); });
+$("#pins").addEventListener("click", e => { const b = e.target.closest("[data-pin]"); if (b) toggleFolder(b.dataset.pin, e.altKey); });
 $("#pins").addEventListener("contextmenu", e => { const b = e.target.closest("[data-pid]"); if (!b) return; e.preventDefault(); pinMenu(e.clientX, e.clientY, b.dataset.pid); });
 $("#recent").addEventListener("click", e => {
   const pr = e.target.closest("[data-pinr]"); if (pr) { e.stopPropagation(); return pinFolder(pr.dataset.pinr); }
-  const b = e.target.closest("[data-recent]"); if (b) toggleFolder(b.dataset.recent, e.metaKey || e.shiftKey);
+  const b = e.target.closest("[data-recent]"); if (b) toggleFolder(b.dataset.recent, e.altKey);
 });
 $("#folderFilter").addEventListener("click", e => { const x = e.target.closest("[data-pinf]"); if (x) pinFolder(x.dataset.pinf); });
 
@@ -748,11 +750,14 @@ $("#since").addEventListener("click", e => {
 });
 $("#roots").addEventListener("click", e => {
   const pl = e.target.closest("[data-place]");
-  if (pl) { toggleFolder(pl.dataset.place, e.metaKey || e.shiftKey); return; }
+  if (pl) { toggleFolder(pl.dataset.place, e.altKey); return; }
   const b = e.target.closest("[data-r]"); if (!b) return;
   if (S.browse != null) return browseTo(b.dataset.r);  // Przeglądaj: open the drive
-  const r = b.dataset.r; S.roots.has(r) ? S.roots.delete(r) : S.roots.add(r); renderRoots(); search();
+  const r = b.dataset.r;
+  if (e.altKey) { S.folders.clear(); S.roots = new Set([r]); } else S.roots.has(r) ? S.roots.delete(r) : S.roots.add(r);
+  renderRoots(); search();
 });
+$("#whereAll").addEventListener("click", () => { S.roots.clear(); S.folders.clear(); renderRoots(); search(); });
 $("#folderFilter").addEventListener("click", e => {
   const x = e.target.closest("[data-unf]"); if (!x) return;
   S.folders.delete(x.dataset.unf); renderRoots(); search();

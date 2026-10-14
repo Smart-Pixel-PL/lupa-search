@@ -19,7 +19,7 @@ Wykreślamy po kolei: `- [x] ~~funkcja~~` = zrobione (z datą i wersją).
 - [x] ~~„Zbierz zaznaczone”: kopiuj zaznaczone do wybranego folderu~~ — v0.4.0 (12.10.2026)
 
 ## 3. Wersje i prawie-duplikaty
-- [x] ~~Grupowanie wersji tego samego projektu w wynikach (np. `tigra_66_01`, `_02`, `_final`) — jedna karta „+N wersji”~~ — v0.4.0 (12.10.2026)
+- [x] ~~Grupowanie wersji tego samego projektu w wynikach (np. `projekt_66_01`, `_02`, `_final`) — jedna karta „+N wersji”~~ — v0.4.0 (12.10.2026)
 - [x] ~~Grupowanie wizualnie prawie identycznych obrazów (podobieństwo Gemma)~~ — v0.4.0 (12.10.2026)
 - [x] ~~Pasek „Wersje” w podglądzie — szybkie przełączanie między wariantami~~ — v0.4.0 (12.10.2026)
 

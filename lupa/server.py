@@ -423,8 +423,8 @@ def _fetch(c, ids, extra, p):
 
 # Version markers that never change *what* the file is: "(1)", "copy", "kopia", "final", "v2", "wersja 3"…
 _VER_WORD = re.compile(r"(?:\s*\(\d+\)|[\s_.\-]+(?:copy|kopia|final|finał|ostateczn\w*|popraw\w*|wersja\s*\d+|ver\d+|v\d+))$", re.I)
-# A trailing number only counts as a version when another number precedes it: tigra_66_01 → tigra_66,
-# but tigra_66 stays (66 is the design), and IMG_4482 stays (different photos).
+# A trailing number only counts as a version when another number precedes it: logo_66_01 → logo_66,
+# but logo_66 stays (66 is the design), and IMG_4482 stays (different photos).
 _VER_NUM = re.compile(r"(\d+[\s_.\-]+)\d{1,3}$")
 
 
@@ -444,7 +444,7 @@ VISUAL_KINDS = {"image", "design", "raw"}
 
 def group_versions(items):
     """Collapse versions of one project into a single card: same folder + same name stem
-    (tigra_66_01.psd, tigra_66_02.png, tigra_66_final.jpg…) or visually near-identical images."""
+    (logo_66_01.psd, logo_66_02.png, logo_66_final.jpg…) or visually near-identical images."""
     n = len(items)
     parent = list(range(n))
 
@@ -846,7 +846,7 @@ def _fold(t: str) -> str:
 
 
 def _salient(q: str):
-    """Specific names/numbers in a question (AUTO-LESZEK, Ostrovia, 12/2025): words with capitals after the
+    """Specific names/numbers in a question (ACME-POL, Kowalski, 12/2025): words with capitals after the
     first word, ALL-CAPS words, or tokens with digits — minus generic words like NIP, VAT, faktura."""
     toks = re.findall(r"[\w][\w\-./]*", q, re.UNICODE)
     out = []
@@ -857,7 +857,7 @@ def _salient(q: str):
         if any(ch.isdigit() for ch in t):
             out.append(f)  # numbers must match exactly
         elif (t.isupper() and len(t) >= 3) or (k > 0 and t[0].isupper()):
-            out.append(f[:max(4, len(f) - 2)])  # Polish inflection: Ostrovii ~ Ostrovia, Zinie ~ Zina
+            out.append(f[:max(4, len(f) - 2)])  # Polish inflection: Kowalskiego ~ Kowalski, Warszawie ~ Warszawa
     return list(dict.fromkeys(out))
 
 
@@ -1100,7 +1100,7 @@ def browse(path: str = ""):
     return res
 
 
-# folder search by name ("karol kos" → …/Wizualizacje Zina/Karol Kosk) -------------------------
+# folder search by name ("jan kow" → …/Klienci/Jan Kowalski) -------------------------
 _fold_tr = str.maketrans("łŁ", "lL")
 _fidx = {"at": 0.0, "n": -1, "items": [], "lock": threading.Lock()}
 
@@ -1141,7 +1141,7 @@ def _folder_index(c):
 @app.get("/api/folders/find")
 def folders_find(q: str = "", within: str = "", limit: int = 12):
     """Folders whose NAME matches the query: exact name > name starts with it > every word is the start of a word
-    in the name ('karol kos' → 'Karol Kosk') > the text appears in the name. Bigger folders first among equals;
+    in the name ('jan kow' → 'Jan Kowalski') > the text appears in the name. Bigger folders first among equals;
     with `within` (the folder being browsed), its subfolders come first."""
     qk = _fold_key(nfc(q)).strip()
     toks = re.findall(r"[0-9a-z]+", qk)

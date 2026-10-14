@@ -535,8 +535,8 @@ $("#bPin").addEventListener("click", () => S.browse && pinFolder(S.browse));
 $("#bFinder").addEventListener("click", () => S.browse && api("/api/open-folder", { method: "POST", json: { path: S.browse } }));
 
 // ------------------------------------------------------------------ ask your files (local Gemma)
-const ASK_EX = ["Ile kosztowała oferta dla Ostrovii?", "Jakie są warunki płatności w umowach zlecenia?",
-  "Kiedy odbywa się turniej Z Orlika na Stadion?", "Jakie faktury wystawiła firma w sierpniu?"];
+const ASK_EX = ["Ile kosztowała ostatnia oferta dla klienta?", "Jakie są warunki płatności w umowach zlecenia?",
+  "Kiedy jest termin oddania projektu?", "Jakie faktury wystawiła firma w sierpniu?"];
 $("#askEx").innerHTML = ASK_EX.map(q => `<button>${esc(q)}</button>`).join("");
 $("#askEx").addEventListener("click", e => { const b = e.target.closest("button"); if (b) { $("#askQ").value = b.textContent; askRun(); } });
 function askFilters() {

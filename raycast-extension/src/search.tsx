@@ -33,7 +33,7 @@ function Results(props: { query?: string; similar?: LupaFile }) {
       searchText={props.similar ? undefined : q}
       onSearchTextChange={props.similar ? undefined : setQ}
       navigationTitle={props.similar ? `Podobne do: ${props.similar.name}` : "Lupa"}
-      searchBarPlaceholder={props.similar ? "Podobne pliki" : "Opisz, czego szukasz… np. „logo zina na czarnym tle”"}
+      searchBarPlaceholder={props.similar ? "Podobne pliki" : "Opisz, czego szukasz… np. „logo na czarnym tle”"}
       searchBarAccessory={
         <Grid.Dropdown tooltip="Typ pliku" storeValue onChange={setKind}>
           {KINDS.map(([v, t]) => <Grid.Dropdown.Item key={v} value={v} title={t} />)}

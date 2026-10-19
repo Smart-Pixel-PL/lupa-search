@@ -186,6 +186,9 @@ main { grid-area: main; overflow-y: auto; padding: 0 18px 30px; position: relati
 .lbnav:hover { background: rgba(255,255,255,.18); }
 .lbnav.prev { left: 12px; } .lbnav.next { right: 12px; }
 .pvmedia img { cursor: zoom-in; }
+/* files are dragged out by the app (native drag), never as the <img> preview itself */
+.card img, .ftile img, .pvmedia img, .lbmedia img { -webkit-user-drag: none; }
+.native-drag #pvName, .native-drag #lbName { cursor: grab; }
 
 .swatches { display: grid; grid-template-columns: repeat(6, 24px); gap: 6px; padding: 6px; }
 .swatches button, .swatches .custom { width: 24px; height: 24px; border-radius: 50%; border: 2px solid transparent; padding: 0; cursor: pointer; }

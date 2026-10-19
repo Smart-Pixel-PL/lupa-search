@@ -712,21 +712,38 @@ function renderVersions(it) {
 
 // ------------------------------------------------------------------ drag files out (Lupa.app → other apps)
 const NATIVE = !!window.webkit?.messageHandlers?.lupa;
+if (NATIVE) document.body.classList.add("native-drag");
 let dragStart = null;
-$("#results").addEventListener("mousedown", e => {
-  const c = e.target.closest(".card"); if (!c || e.button !== 0) return;
-  dragStart = { x: e.clientX, y: e.clientY, i: +c.dataset.i, sent: false };
-});
+// what a mousedown at `el` would drag: the selection (cards), a folder (tiles), the previewed file (preview, viewer)
+function dragPaths(el) {
+  const c = el.closest(".card");
+  if (c) {
+    const it = S.items[+c.dataset.i]; if (!it || it.offline) return null;
+    const ids = S.sel.has(it.id) ? S.sel : new Set([it.id]);
+    return S.items.filter(x => ids.has(x.id) && !x.offline).map(x => x.path);
+  }
+  const t = el.closest(".ftile[data-b]"); if (t) return [t.dataset.b];
+  // preview / viewer: the picture, placeholder or the file name (video, audio and PDF keep their own controls)
+  if (el.closest("#pvMedia img, #pvMedia .ph, #pvName, #lbMedia img, #lbMedia .ph, #lbName")) {
+    const it = pvItem(); return it && !it.offline ? [it.path] : null;
+  }
+  return null;
+}
+addEventListener("mousedown", e => {
+  dragStart = null;
+  if (!NATIVE || e.button !== 0) return;
+  const paths = dragPaths(e.target);
+  if (paths?.length) dragStart = { x: e.clientX, y: e.clientY, paths, sent: false };
+}, true);
 addEventListener("mousemove", e => {
-  if (!dragStart || dragStart.sent || !NATIVE) return;
-  if (Math.hypot(e.clientX - dragStart.x, e.clientY - dragStart.y) < 8) return;
-  const it = S.items[dragStart.i]; if (!it || it.offline) return;
-  const ids = S.sel.has(it.id) ? [...S.sel] : [it.id];
-  const paths = S.items.filter(x => ids.includes(x.id)).map(x => x.path);
+  if (!dragStart || dragStart.sent) return;
+  if (Math.hypot(e.clientX - dragStart.x, e.clientY - dragStart.y) < 5) return;
   dragStart.sent = true;
-  window.webkit.messageHandlers.lupa.postMessage({ type: "drag", paths });
+  window.webkit.messageHandlers.lupa.postMessage({ type: "drag", paths: dragStart.paths });
 });
 addEventListener("mouseup", () => { dragStart = null; });
+// WebKit would otherwise start its own drag of the thumbnail <img> (a JPEG preview, not the file) and swallow the gesture
+if (NATIVE) addEventListener("dragstart", e => { if (dragPaths(e.target)) e.preventDefault(); }, true);
 if (!NATIVE) {  // plain Chrome: drag a card to the desktop/Finder downloads the file
   $("#results").addEventListener("dragstart", e => {
     const c = e.target.closest(".card"); if (!c) return;

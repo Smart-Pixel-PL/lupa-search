@@ -20,6 +20,7 @@ body:not(.native) { background: #f6f6f4; padding: 30px; } @media (prefers-color-
 #list:empty { display: none; }
 .row { display: grid; grid-template-columns: 44px 1fr auto; gap: 12px; align-items: center; padding: 6px 10px; border-radius: 9px; cursor: default; }
 .row.on { background: var(--sel); }
+.row img { -webkit-user-drag: none; }
 .row img, .row .ic { width: 44px; height: 44px; border-radius: 7px; object-fit: cover; background: var(--thumb); display: grid; place-items: center; font-size: 22px; }
 .row .n { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 14px; }
 .row .f { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12px; color: var(--muted); margin-top: 2px; }
@@ -95,11 +96,12 @@ addEventListener("keydown", e => {
 let drag = null;
 $("#list").addEventListener("mousedown", e => { const r = e.target.closest(".row"); if (r) drag = { x: e.clientX, y: e.clientY, i: +r.dataset.i }; });
 $("#list").addEventListener("mousemove", e => {
-  if (!drag || Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 8) return;
+  if (!drag || Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 5) return;
   const f = M.items[drag.i]; drag = null;
   if (f && !f.offline) post({ type: "drag", paths: [f.path] });
 });
 addEventListener("mouseup", () => { drag = null; });
+addEventListener("dragstart", e => e.preventDefault());  // no WebKit drag of the thumbnail <img>: the app drags the file
 $("#list").addEventListener("click", e => { const r = e.target.closest(".row"); if (r) { M.cur = +r.dataset.i; render(); } });
 $("#list").addEventListener("dblclick", e => { const r = e.target.closest(".row"); if (r) act("open", +r.dataset.i); });
 // called by the app each time the panel is shown

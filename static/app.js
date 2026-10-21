@@ -217,7 +217,7 @@ async function openPreview(it) {
   renderPvColors(it);
   renderTranscript(it);
   $("#pvBg").hidden = !BG_OK.has((it.ext || "").toLowerCase()) || it.offline;
-  $("#pvConv").hidden = !CONV_OK.has((it.ext || "").toLowerCase()) || it.offline;
+  $("#pvConv").hidden = $("#pvEdit").hidden = !CONV_OK.has((it.ext || "").toLowerCase()) || it.offline;
   if (!S.bgResult || S.bgResult.id !== it.id) $("#pvBgBar").hidden = true;
   const meta = [
     ["Typ", `${ICON[it.kind] || ""} ${(S.status?.labels || {})[it.kind] || it.kind} ${it.ext ? "(" + it.ext + ")" : ""}`],
@@ -528,6 +528,148 @@ addEventListener("keydown", e => {
 }, true);
 $("#pvConv").addEventListener("click", () => { const it = pvItem(); if (it) openConvert([it.id]); });
 $("#selConv").addEventListener("click", () => openConvert(selectedIds()));
+
+// ------------------------------------------------------------------ simple image editor (crop, rotate, flip, adjust)
+const ED = { it: null, img: null, rot: 0, fh: false, fv: false, crop: [0, 0, 1, 1], ratio: "free", cw: 0, ch: 0 };
+const edFull = () => ED.crop.every((v, i) => Math.abs(v - [0, 0, 1, 1][i]) < 0.002);
+const edAdj = id => 1 + (+$(id).value) / 100;
+async function openEditor(it) {
+  if (ED.img) URL.revokeObjectURL(ED.img.src);
+  Object.assign(ED, { it, img: null, full: null, rot: 0, fh: false, fv: false, crop: [0, 0, 1, 1], ratio: "free" });
+  $("#edName").textContent = it.name; $("#edRatio").value = "free";
+  ["#edBri", "#edCon", "#edSat"].forEach(id => ($(id).value = 0));
+  $("#edMode").value = store.get("editMode", "copy");
+  $("#edModal").hidden = false; $("#edLoad").hidden = false; $("#edWrap").hidden = true;
+  const img = new Image();
+  try {
+    const res = await fetch(`/api/editsrc/${it.id}`, { headers: { "x-lupa": "1" } });
+    if (!res.ok) throw new Error(res.status);
+    ED.full = (res.headers.get("x-full-size") || "").split("x").map(Number);  // upright size of the original
+    img.src = URL.createObjectURL(await res.blob()); await img.decode();
+  } catch { $("#edModal").hidden = true; return toast("Nie udało się wczytać obrazu", 4000); }
+  if (ED.it !== it) return;
+  ED.img = img; $("#edLoad").hidden = true; $("#edWrap").hidden = false; edDraw();
+}
+function edDraw() {
+  if (!ED.img) return;
+  const side = ED.rot % 180 !== 0;
+  const w = side ? ED.img.height : ED.img.width, h = side ? ED.img.width : ED.img.height;
+  const st = $("#edStage"), k = Math.min(1, (st.clientWidth - 48) / w, (st.clientHeight - 48) / h);
+  const cw = Math.max(1, Math.round(w * k)), ch = Math.max(1, Math.round(h * k)), dpr = devicePixelRatio || 1;
+  const cv = $("#edCanvas"), g = cv.getContext("2d");
+  cv.width = cw * dpr; cv.height = ch * dpr; cv.style.width = cw + "px"; cv.style.height = ch + "px";
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.translate(cw / 2, ch / 2); g.scale(ED.fh ? -1 : 1, ED.fv ? -1 : 1); g.rotate(ED.rot * Math.PI / 180);  // = rotate, then flip
+  const dw = side ? ch : cw, dh = side ? cw : ch;
+  g.drawImage(ED.img, -dw / 2, -dh / 2, dw, dh);
+  cv.style.filter = `brightness(${edAdj("#edBri")}) contrast(${edAdj("#edCon")}) saturate(${edAdj("#edSat")})`;
+  Object.assign(ED, { cw, ch });
+  edPlaceCrop();
+}
+function edPlaceCrop() {
+  const [x, y, w, h] = ED.crop, c = $("#edCrop");
+  Object.assign(c.style, { left: x * ED.cw + "px", top: y * ED.ch + "px", width: w * ED.cw + "px", height: h * ED.ch + "px" });
+  const [fw, fh] = ED.full || [], W = ED.rot % 180 ? fh : fw, H = ED.rot % 180 ? fw : fh;
+  $("#edSize").textContent = W && H ? `${Math.round(w * W)} × ${Math.round(h * H)} px` : "";
+}
+function edRatio() {  // the chosen proportion as width / height of the (rotated) image, or 0 for free
+  const v = ED.ratio; if (v === "free") return 0;
+  return v === "orig" ? ED.cw / ED.ch : +v;
+}
+function edFitRatio() {  // the largest centred crop with the chosen proportion
+  const r = edRatio(); if (!r) return;
+  let w = ED.cw, h = ED.cw / r;
+  if (h > ED.ch) { h = ED.ch; w = h * r; }
+  ED.crop = [(ED.cw - w) / 2 / ED.cw, (ED.ch - h) / 2 / ED.ch, w / ED.cw, h / ED.ch];
+  edPlaceCrop();
+}
+function edTurn(dir) {  // dir 1 = clockwise
+  const [x, y, w, h] = ED.crop;
+  ED.crop = dir > 0 ? [1 - y - h, x, h, w] : [y, 1 - x - w, h, w];
+  [ED.fh, ED.fv] = [ED.fv, ED.fh];  // a flip turns with the picture
+  ED.rot = (ED.rot + (dir > 0 ? 90 : 270)) % 360;
+  edDraw(); if (ED.ratio !== "free" && ED.ratio !== "orig") edFitRatio();
+}
+function edFlip(hor) {
+  const [x, y, w, h] = ED.crop;
+  if (hor) { ED.fh = !ED.fh; ED.crop = [1 - x - w, y, w, h]; } else { ED.fv = !ED.fv; ED.crop = [x, 1 - y - h, w, h]; }
+  edDraw();
+}
+let edDrag = null;
+$("#edCrop").addEventListener("pointerdown", e => {
+  e.preventDefault(); $("#edCrop").setPointerCapture(e.pointerId);
+  const [x, y, w, h] = ED.crop;
+  edDrag = { h: e.target.dataset.h || "move", sx: e.clientX, sy: e.clientY, r: [x * ED.cw, y * ED.ch, w * ED.cw, h * ED.ch] };
+});
+$("#edCrop").addEventListener("pointermove", e => {
+  if (!edDrag) return;
+  const { h: hd, r: [x0, y0, w0, h0] } = edDrag, dx = e.clientX - edDrag.sx, dy = e.clientY - edDrag.sy;
+  const W = ED.cw, H = ED.ch, M = 16, clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  let l = x0, t = y0, r = x0 + w0, b = y0 + h0;
+  if (hd === "move") { l = clamp(x0 + dx, 0, W - w0); t = clamp(y0 + dy, 0, H - h0); r = l + w0; b = t + h0; }
+  else {
+    if (hd.includes("w")) l = clamp(x0 + dx, 0, r - M);
+    if (hd.includes("e")) r = clamp(x0 + w0 + dx, l + M, W);
+    if (hd.includes("n")) t = clamp(y0 + dy, 0, b - M);
+    if (hd.includes("s")) b = clamp(y0 + h0 + dy, t + M, H);
+    const ra = edRatio();
+    if (ra) {  // keep the proportion: the edges opposite the handle stay put, the box shrinks to fit the picture
+      let w = r - l, h = b - t;
+      if (hd === "n" || hd === "s") w = h * ra; else h = w / ra;
+      const ax = hd.includes("w") ? "r" : hd.includes("e") ? "l" : "c", ay = hd.includes("n") ? "b" : hd.includes("s") ? "t" : "c";
+      const cx = x0 + w0 / 2, cy = y0 + h0 / 2;
+      const maxW = ax === "r" ? r : ax === "l" ? W - l : 2 * Math.min(cx, W - cx);
+      const maxH = ay === "b" ? b : ay === "t" ? H - t : 2 * Math.min(cy, H - cy);
+      const k = Math.min(1, maxW / w, maxH / h); w *= k; h *= k;
+      l = ax === "r" ? r - w : ax === "l" ? l : cx - w / 2;
+      t = ay === "b" ? b - h : ay === "t" ? t : cy - h / 2;
+      r = l + w; b = t + h;
+    }
+  }
+  ED.crop = [l / W, t / H, (r - l) / W, (b - t) / H];
+  edPlaceCrop();
+});
+["pointerup", "pointercancel"].forEach(ev => $("#edCrop").addEventListener(ev, () => (edDrag = null)));
+$("#edRotL").addEventListener("click", () => edTurn(-1));
+$("#edRotR").addEventListener("click", () => edTurn(1));
+$("#edFlipH").addEventListener("click", () => edFlip(true));
+$("#edFlipV").addEventListener("click", () => edFlip(false));
+$("#edRatio").addEventListener("change", e => { ED.ratio = e.target.value; if (ED.ratio === "free") return; edFitRatio(); });
+$("#edCropReset").addEventListener("click", () => { ED.ratio = "free"; $("#edRatio").value = "free"; ED.crop = [0, 0, 1, 1]; edPlaceCrop(); });
+["#edBri", "#edCon", "#edSat"].forEach(id => $(id).addEventListener("input", edDraw));
+$("#edReset").addEventListener("click", () => { const it = ED.it; if (it) openEditor(it); });
+$("#edCancel").addEventListener("click", () => ($("#edModal").hidden = true));
+addEventListener("resize", () => { if (!$("#edModal").hidden) edDraw(); });
+async function edSave() {
+  const it = ED.it; if (!it || !ED.img) return;
+  const ops = { rotate: ED.rot, flip_h: ED.fh, flip_v: ED.fv, crop: edFull() ? null : ED.crop,
+    brightness: edAdj("#edBri"), contrast: edAdj("#edCon"), saturation: edAdj("#edSat") };
+  if (!ops.rotate && !ops.flip_h && !ops.flip_v && !ops.crop && [ops.brightness, ops.contrast, ops.saturation].every(v => v === 1))
+    return toast("Nie ma żadnych zmian do zapisania");
+  const mode = $("#edMode").value; store.set("editMode", mode);
+  if (mode === "replace" && !confirm("Zastąpić oryginał?\n\nOryginał trafi do Kosza (możesz go przywrócić).")) return;
+  const btn = $("#edSave"); btn.disabled = true; btn.textContent = "Zapisuję…";
+  try {
+    const r = await api(`/api/edit/${it.id}`, { method: "POST", json: { ops, mode } });
+    $("#edModal").hidden = true;
+    const f = await api(`/api/file/${r.id}`);
+    if (r.replaced) refreshItem(f);
+    await openPreview({ ...f, tags: f.tags || [] });
+    toast(r.replaced ? `✅ Zapisano zmiany w ${r.name} (oryginał jest w Koszu)` : `✅ Zapisano kopię: ${r.name}`, 4000);
+  } catch (e) { toast("Nie udało się zapisać: " + e.message, 5000); }
+  finally { btn.disabled = false; btn.innerHTML = "Zapisz <kbd>↵</kbd>"; }
+}
+$("#edSave").addEventListener("click", edSave);
+addEventListener("keydown", e => {
+  if ($("#edModal").hidden) return;
+  e.stopImmediatePropagation();
+  if (e.target.matches("select")) return;
+  if (e.key === "Escape") { e.preventDefault(); $("#edModal").hidden = true; }
+  else if (e.key === "Enter") { e.preventDefault(); edSave(); }
+  else if (e.key === "[") edTurn(-1);
+  else if (e.key === "]") edTurn(1);
+}, true);
+$("#pvEdit").addEventListener("click", () => { const it = pvItem(); if (it) openEditor(it); });
 
 async function renderTranscript(it) {
   const box = $("#pvAsr"); box.hidden = true;
@@ -1092,6 +1234,7 @@ addEventListener("keydown", e => {
   else if (e.key === "Escape") { if (!$("#preview").hidden) closePreview(); else if (S.sel.size) $("#selClear").click(); else if (S.similar || S.image || S.collection) { resetMode(); search(); } }
   else if (e.key === "s" || e.key === "S") similar();
   else if (e.key === "q" || e.key === "Q") openLightbox();
+  else if ((e.key === "e" || e.key === "E") && !e.metaKey) { const it = pvItem(); if (it && CONV_OK.has((it.ext || "").toLowerCase()) && !it.offline) openEditor(it); }
   else if (e.key === "t" && curItem()) { const r = $(`.card[data-i="${S.cur}"]`).getBoundingClientRect(); tagMenu(r.left + 20, r.top + 40, selectedIds()); e.preventDefault(); }
   else if (e.key === "f" && curItem()) { const ids = selectedIds(); setTag(1, ids, !curItem().tags.includes(1)); }
   else if (e.key === "a" && e.metaKey) { e.preventDefault(); S.items.forEach((it, i) => { S.sel.add(it.id); $(`.card[data-i="${i}"]`)?.classList.add("sel"); }); updateSelBar(); }

@@ -1324,6 +1324,50 @@ def convert_images(d: dict = Body(...)):
     return {"items": out}
 
 
+@app.get("/api/editsrc/{fid}")
+def edit_source(fid: int, max: int = 1800):
+    """The picture the editor works on: upright (camera rotation applied), scaled down, PNG when it has
+    transparency, JPEG otherwise. Works for HEIC/TIFF/AVIF, which a web view may not show by itself."""
+    from .imagetools import IN_EXTS, open_upright
+    r = db().execute("SELECT path, ext FROM files WHERE id=?", (fid,)).fetchone()
+    if not r or (r["ext"] or "").lower() not in IN_EXTS or not os.path.exists(r["path"]):
+        raise HTTPException(404)
+    im = open_upright(r["path"])
+    full = f"{im.width}x{im.height}"
+    im.thumbnail((max, max))
+    buf = io.BytesIO()
+    if im.mode in ("RGBA", "LA", "PA") or (im.mode == "P" and "transparency" in im.info):
+        im.convert("RGBA").save(buf, "PNG")
+        mt = "image/png"
+    else:
+        im.convert("RGB").save(buf, "JPEG", quality=90)
+        mt = "image/jpeg"
+    return Response(buf.getvalue(), media_type=mt, headers={"Cache-Control": "no-store", "X-Full-Size": full})
+
+
+@app.post("/api/edit/{fid}")
+def edit_image(fid: int, d: dict = Body(...)):
+    """Crop / rotate / flip / adjust. mode "copy" writes '<name> (edytowany).<ext>' next to the original;
+    "replace" puts the original in the Trash and the edit takes its name."""
+    from .imagetools import IN_EXTS, edit, edit_name
+    r = db().execute("SELECT path, ext FROM files WHERE id=?", (fid,)).fetchone()
+    if not r or (r["ext"] or "").lower() not in IN_EXTS or not os.path.exists(r["path"]):
+        raise HTTPException(400, "edycja działa dla obrazów (PNG, JPG, WebP, HEIC, TIFF, AVIF)")
+    dest = edit_name(r["path"])
+    try:
+        edit(r["path"], dest, d.get("ops") or {})
+        if d.get("mode") == "replace":
+            target = _replace_original(r["path"], dest)
+            _index_file(target, fid)
+            return {"ok": True, "id": fid, "path": target, "name": os.path.basename(target), "replaced": True}
+    except Exception as e:  # noqa: BLE001
+        if os.path.exists(dest) and os.path.exists(r["path"]):
+            os.remove(dest)
+        raise HTTPException(500, f"nie udało się: {e}")
+    new_id = _index_file(dest)
+    return {"ok": True, "id": new_id, "path": dest, "name": os.path.basename(dest), "replaced": False}
+
+
 @app.get("/api/transcript/{fid}")
 def transcript(fid: int):
     import json as _j

@@ -139,6 +139,7 @@
         <button id="pvPin" title="Przypnij folder tego pliku w sekcji Gdzie">📌 Przypnij folder</button>
         <button id="pvBg" title="Utwórz obok kopię PNG z przezroczystym tłem (oryginał zostaje bez zmian)" hidden>✂️ Usuń tło</button>
         <button id="pvConv" title="Zmniejsz plik albo zapisz go w innym formacie (JPG, PNG, WebP, AVIF, HEIC)" hidden>🗜 Kompresuj / konwertuj</button>
+        <button id="pvEdit" title="Przytnij, obróć, odbij, popraw jasność i kolory (E)" hidden>✏️ Edytuj</button>
       </div>
       <div class="pvbg" id="pvBgBar" hidden></div>
       <div class="pvcolors" id="pvColors" hidden></div>
@@ -214,6 +215,44 @@
     <div class="dm-sub" id="dmSub"></div>
     <div class="dm-map" id="dmMap"></div>
     <div class="dm-foot">Kliknij kafelek, aby wejść do folderu · <kbd>⌥</kbd>+klik pokazuje go w Finderze · rozmiary z Maca liczone na żywo, z NAS-a — z indeksu Lupy</div>
+  </div>
+</div>
+
+<div id="edModal" class="ed-modal" hidden>
+  <div class="ed-top">
+    <b id="edName"></b><span class="spacer"></span>
+    <button id="edRotL" title="Obróć w lewo ([)">⟲</button>
+    <button id="edRotR" title="Obróć w prawo (])">⟳</button>
+    <button id="edFlipH" title="Odbij w poziomie">⇋</button>
+    <button id="edFlipV" title="Odbij w pionie">⇵</button>
+    <span class="ed-sep"></span>
+    <label class="ed-ratio">Kadr <select id="edRatio">
+      <option value="free">Dowolny</option><option value="orig">Jak oryginał</option><option value="1">1:1 (kwadrat)</option>
+      <option value="1.3333">4:3</option><option value="0.75">3:4</option><option value="1.7778">16:9</option>
+      <option value="0.5625">9:16 (Stories)</option><option value="0.8">4:5 (Instagram)</option><option value="1.5">3:2</option>
+    </select></label>
+    <button id="edCropReset" title="Cały obraz">⤢ Cały obraz</button>
+  </div>
+  <div class="ed-stage" id="edStage">
+    <div class="ed-wrap" id="edWrap">
+      <canvas id="edCanvas"></canvas>
+      <div class="ed-crop" id="edCrop">
+        <i data-h="nw"></i><i data-h="n"></i><i data-h="ne"></i><i data-h="e"></i>
+        <i data-h="se"></i><i data-h="s"></i><i data-h="sw"></i><i data-h="w"></i>
+      </div>
+    </div>
+    <div class="ed-load" id="edLoad"><span class="spin"></span> Wczytuję obraz…</div>
+  </div>
+  <div class="ed-bottom">
+    <label>☀️ Jasność <input type="range" id="edBri" min="-100" max="100" value="0"></label>
+    <label>◐ Kontrast <input type="range" id="edCon" min="-100" max="100" value="0"></label>
+    <label>🎨 Nasycenie <input type="range" id="edSat" min="-100" max="100" value="0"></label>
+    <button id="edReset" title="Cofnij wszystkie zmiany">↺ Resetuj</button>
+    <span class="spacer"></span>
+    <span class="ed-size" id="edSize"></span>
+    <select id="edMode"><option value="copy">Zapisz jako kopię obok</option><option value="replace">Zastąp oryginał (oryginał do Kosza)</option></select>
+    <button id="edCancel">Anuluj</button>
+    <button id="edSave" class="primary">Zapisz <kbd>↵</kbd></button>
   </div>
 </div>
 

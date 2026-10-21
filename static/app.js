@@ -420,17 +420,39 @@ $("#colors").addEventListener("click", e => { const b = e.target.closest("[data-
 $("#colors").addEventListener("change", e => { if (e.target.id === "colorPick") { S.color = ""; setColor(e.target.value); } });
 $("#colorClear").addEventListener("click", () => { S.color = ""; renderColors(); search(); });
 const BG_OK = new Set([".png", ".jpg", ".jpeg", ".webp", ".heic", ".heif", ".tif", ".tiff", ".bmp", ".gif"]);
+const BG_ENGINES = {
+  logo: ["Logo", "Logo (jednolite tło)"],
+  ai: ["AI BiRefNet", "AI BiRefNet (najlepsze krawędzie, włosy, produkty)"],
+  vision: ["AI (Apple Vision)", "AI (Apple Vision) - szybkie, do zdjęć"],
+};
+async function aiDownloadWatch(engine) {  // first use of BiRefNet downloads its model: say so while it lasts
+  if (engine !== "ai") return () => {};
+  let st; try { st = await api("/api/bgremove/ai"); } catch { return () => {}; }
+  if (st.downloaded) return () => {};
+  const say = p => toast(`⬇️ Pobieram model AI BiRefNet (ok. ${st.mb} MB, tylko za pierwszym razem)… ${p ? Math.round(p * 100) + "%" : ""}`, 60000);
+  say(0);
+  const t = setInterval(async () => {
+    try {
+      const s = await api("/api/bgremove/ai");
+      if (!s.downloaded) return say(s.progress);
+      clearInterval(t); toast("✅ Model pobrany, usuwam tło…", 60000);
+    } catch {}
+  }, 1500);
+  return () => clearInterval(t);
+}
 async function removeBg(srcId, engine = "auto", replace = "", holes = "auto") {
   const btn = $("#pvBg"); btn.disabled = true; btn.textContent = "✂️ Usuwam tło…";
+  const stopWatch = await aiDownloadWatch(engine);
   try {
     const r = await api(`/api/bgremove/${srcId}`, { method: "POST", json: { engine, replace, holes } });
+    stopWatch();
     S.bgResult = { id: r.id, src: srcId, path: r.path, engine: r.engine, holes: r.holes };
     const it = await api(`/api/file/${r.id}`);
     await openPreview({ ...it, tags: it.tags || [] });
     renderBgBar(r);
     toast(`✂️ Gotowe: ${r.name}`, 3500);
   } catch (e) { toast("Nie udało się usunąć tła: " + e.message, 5000); }
-  finally { btn.disabled = false; btn.textContent = "✂️ Usuń tło"; }
+  finally { stopWatch(); btn.disabled = false; btn.textContent = "✂️ Usuń tło"; }
 }
 function refreshItem(it) {  // a file Lupa rewrote: show its new name, size and thumbnail in the grid
   const i = S.items.findIndex(x => x.id === it.id); if (i < 0) return;
@@ -438,13 +460,14 @@ function refreshItem(it) {  // a file Lupa rewrote: show its new name, size and 
   rerenderCard(i);
 }
 function renderBgBar(r) {
-  const other = r.engine === "logo" ? ["vision", "AI (Apple Vision) — do zdjęć i produktów"] : ["logo", "Logo (jednolite tło)"];
+  const others = Object.keys(BG_ENGINES).filter(k => k !== r.engine)
+    .map(k => `<button data-eng="${k}">Spróbuj: ${esc(BG_ENGINES[k][1])}</button>`).join("");
   const holes = r.engine !== "logo" ? "" : `<div class="bgopt">Środki liter (O, A, B…):
       <button data-holes="auto" class="${r.holes !== "keep" ? "on" : ""}">przezroczyste</button>
       <button data-holes="keep" class="${r.holes === "keep" ? "on" : ""}">białe</button></div>`;
-  $("#pvBgBar").innerHTML = `✅ Utworzono <b>${esc(r.name)}</b> metodą <b>${r.engine === "logo" ? "Logo" : "AI (Apple Vision)"}</b>. Oryginał jest bez zmian.
+  $("#pvBgBar").innerHTML = `✅ Utworzono <b>${esc(r.name)}</b> metodą <b>${esc((BG_ENGINES[r.engine] || [r.engine])[0])}</b>. Oryginał jest bez zmian.
     ${holes}
-    <div class="bgopt"><button data-keep class="primary">Zastąp oryginał tym plikiem</button><button data-eng="${other[0]}">Spróbuj: ${esc(other[1])}</button></div>`;
+    <div class="bgopt"><button data-keep class="primary">Zastąp oryginał tym plikiem</button>${others}</div>`;
   $("#pvBgBar").hidden = false;
 }
 $("#pvBg").addEventListener("click", () => { const it = pvItem(); if (it) removeBg(it.id); });

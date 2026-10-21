@@ -1,19 +1,21 @@
 """Background removal for logos and product images.
 
-Two engines:
+Three engines:
   • "logo"   — for graphics on a flat background (typical client logo on white): removes the background that
                touches the image border (flood fill with tolerance) and the inside of letters (O, A, B…), while
                white artwork inside the logo (white text on a dark badge, stripes, outlines) stays. Edge pixels
                are un-blended from the background colour (colour-to-alpha) so there is no white halo.
+  • "ai"     — BiRefNet (open-source segmentation model, see birefnet.py): the best edges for hair, fur and
+               products; downloaded once (~450 MB) on first use.
   • "vision" — Apple Vision subject lift (on-device AI) for photos, products, people.
-"auto" picks "logo" when the border is one flat colour, otherwise "vision".
+"auto" picks "logo" when the border is one flat colour, otherwise "ai" when its model is downloaded, else "vision".
 """
 import os
 import subprocess
 import time
 
 import numpy as np
-from PIL import Image, ImageFilter
+from PIL import Image, ImageFilter, ImageOps
 from scipy import ndimage
 
 from .common import DATA, PROJECT
@@ -133,7 +135,8 @@ def remove_background(path: str, engine: str = "auto", trim: bool = False, holes
     rgb = np.asarray(im.convert("RGB")).astype(np.float32)
     bg, flat = border_stats(rgb)
     if engine == "auto":
-        engine = "logo" if flat >= 0.85 else "vision"
+        from .birefnet import is_downloaded
+        engine = "logo" if flat >= 0.85 else "ai" if is_downloaded() else "vision"
     dest = output_path(path)
 
     def logo(tmp):
@@ -146,6 +149,13 @@ def remove_background(path: str, engine: str = "auto", trim: bool = False, holes
         if not remove_vision(path, tmp):
             raise RuntimeError("Apple Vision nie znalazł obiektu")
 
+    def ai(tmp):
+        from .birefnet import remove_ai
+        # photos: optimize=True would take ~8x longer for ~7 % smaller files
+        remove_ai(ImageOps.exif_transpose(im)).save(tmp, "PNG", compress_level=6)
+
+    if engine == "ai":
+        _save_atomic(ai, dest)
     if engine == "vision":
         try:
             _save_atomic(vision, dest)

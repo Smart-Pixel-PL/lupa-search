@@ -1232,6 +1232,13 @@ def _replace_original(orig: str, made: str) -> str:
     return target
 
 
+@app.get("/api/bgremove/ai")
+def bg_ai_status():
+    """BiRefNet model state for the UI: downloaded yet, download progress, loaded in memory."""
+    from .birefnet import status
+    return status()
+
+
 @app.post("/api/bgremove/{fid}")
 def bg_remove(fid: int, d: dict = Body(default={})):
     """Make '<name> bez tła.png' next to the original (never touches the original) and index it right away."""

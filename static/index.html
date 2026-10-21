@@ -115,6 +115,7 @@
         <button id="selFav">★ Ulubione</button>
         <button id="selZip" title="Spakuj zaznaczone do ZIP (w Pobranych)">📦 ZIP</button>
         <button id="selCopy" title="Skopiuj zaznaczone do wybranego folderu">📁 Kopiuj do…</button>
+        <button id="selConv" title="Kompresuj lub konwertuj zaznaczone obrazy">🗜 Kompresuj</button>
         <button id="selClear">✕</button>
       </span>
     </div>
@@ -137,6 +138,7 @@
         <button id="pvFolder">Ten folder</button>
         <button id="pvPin" title="Przypnij folder tego pliku w sekcji Gdzie">📌 Przypnij folder</button>
         <button id="pvBg" title="Utwórz obok kopię PNG z przezroczystym tłem (oryginał zostaje bez zmian)" hidden>✂️ Usuń tło</button>
+        <button id="pvConv" title="Zmniejsz plik albo zapisz go w innym formacie (JPG, PNG, WebP, AVIF, HEIC)" hidden>🗜 Kompresuj / konwertuj</button>
       </div>
       <div class="pvbg" id="pvBgBar" hidden></div>
       <div class="pvcolors" id="pvColors" hidden></div>
@@ -212,6 +214,46 @@
     <div class="dm-sub" id="dmSub"></div>
     <div class="dm-map" id="dmMap"></div>
     <div class="dm-foot">Kliknij kafelek, aby wejść do folderu · <kbd>⌥</kbd>+klik pokazuje go w Finderze · rozmiary z Maca liczone na żywo, z NAS-a — z indeksu Lupy</div>
+  </div>
+</div>
+
+<div id="cvModal" class="un-modal" hidden>
+  <div class="un-box cv-box">
+    <div class="un-head"><b class="cv-title" id="cvTitle"></b><span class="spacer"></span>
+      <button class="un-back" id="cvClose" title="Zamknij (Esc)">✕</button></div>
+    <div class="cv-form" id="cvForm">
+      <label>Format
+        <select id="cvFmt">
+          <option value="same">Bez zmiany formatu (tylko kompresja)</option>
+          <option value="jpg">JPG (zdjęcia, najmniejszy bez przezroczystości)</option>
+          <option value="png">PNG (logo, grafika, przezroczystość)</option>
+          <option value="webp">WebP (strony www, przezroczystość)</option>
+          <option value="avif">AVIF (najmniejszy, nowe przeglądarki)</option>
+          <option value="heic">HEIC (Apple)</option>
+          <option value="tiff">TIFF (druk, bez strat)</option>
+        </select></label>
+      <label id="cvQRow">Jakość <b id="cvQV"></b>
+        <input type="range" id="cvQ" min="40" max="100" step="1">
+        <small>82 to dobry kompromis: plik kilka razy mniejszy, różnicy zwykle nie widać.</small></label>
+      <label class="cv-check" id="cvColorsRow"><input type="checkbox" id="cvColors"> PNG: zmniejsz liczbę kolorów do 256 (jak TinyPNG, plik nawet 3-5× mniejszy; dobre dla logo i grafik, gorsze dla zdjęć)</label>
+      <label>Rozmiar
+        <select id="cvMax">
+          <option value="0">Bez zmiany wymiarów</option>
+          <option value="3840">Najdłuższy bok max 3840 px (4K)</option>
+          <option value="2560">Najdłuższy bok max 2560 px</option>
+          <option value="1920">Najdłuższy bok max 1920 px (Full HD, www)</option>
+          <option value="1280">Najdłuższy bok max 1280 px</option>
+          <option value="800">Najdłuższy bok max 800 px (miniatury, e-mail)</option>
+        </select></label>
+      <label class="cv-check"><input type="checkbox" id="cvStrip" checked> Usuń metadane (dane aparatu, lokalizacja GPS)</label>
+      <div class="cv-mode">
+        <label><input type="radio" name="cvMode" value="copy" checked> Zapisz <b>kopię obok</b> oryginału</label>
+        <label><input type="radio" name="cvMode" value="replace"> <b>Zastąp oryginał</b> (oryginał trafi do Kosza)</label>
+      </div>
+    </div>
+    <div class="cv-res" id="cvRes" hidden></div>
+    <div class="un-foot"><span id="cvInfo"></span><span class="spacer"></span>
+      <button id="cvGo" class="un-go">Zapisz <kbd>↵</kbd></button></div>
   </div>
 </div>
 

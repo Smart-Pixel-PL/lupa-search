@@ -1181,39 +1181,147 @@ _bg_made: set = set()  # files created by "Usuń tło" in this session (may be r
 BG_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".heic", ".heif", ".tif", ".tiff", ".bmp", ".gif"}
 
 
+def _index_file(path: str, fid: int | None = None) -> int:
+    """Put a file Lupa just wrote into the index with a thumbnail, so it shows up at once.
+    With `fid` the existing row moves to `path` (tags and favourites stay with the file)."""
+    from .common import kind_of, root_of
+    from .extract import quick_thumb, save_thumb
+    st = os.stat(path)
+    name, ext = os.path.basename(path), os.path.splitext(path)[1].lower()
+    c = connect()
+    if fid is None:
+        c.execute("""INSERT INTO files(path,root,name,ext,kind,size,mtime,ctime,scan,stage) VALUES(?,?,?,?,?,?,?,?,0,0)
+                     ON CONFLICT(path) DO UPDATE SET size=excluded.size, mtime=excluded.mtime, stage=0, missing=0""",
+                  (path, root_of(path), name, ext, kind_of(path), st.st_size, st.st_mtime, st.st_mtime))
+        fid = c.execute("SELECT id FROM files WHERE path=?", (path,)).fetchone()[0]
+    else:
+        old = c.execute("SELECT id FROM files WHERE path=? AND id!=?", (path, fid)).fetchone()
+        if old:  # a stale row for the new name (the old file is gone): drop it
+            c.execute("DELETE FROM file_tags WHERE file_id=?", (old[0],))
+            c.execute("DELETE FROM vectors WHERE file_id=?", (old[0],))
+            c.execute("DELETE FROM files WHERE id=?", (old[0],))
+        c.execute("""UPDATE files SET path=?, root=?, name=?, ext=?, kind=?, size=?, mtime=?, stage=0, missing=0,
+                     error=NULL WHERE id=?""", (path, root_of(path), name, ext, kind_of(path), st.st_size, st.st_mtime, fid))
+    c.commit()
+    try:
+        save_thumb(quick_thumb(path, "image"), thumb_path(fid))
+        c.execute("UPDATE files SET thumb=1 WHERE id=?", (fid,))
+        c.commit()
+    except Exception:
+        pass
+    return fid
+
+
+def _forget(fid: int) -> None:
+    c = connect()
+    c.execute("DELETE FROM file_tags WHERE file_id=?", (fid,))
+    c.execute("DELETE FROM vectors WHERE file_id=?", (fid,))
+    c.execute("DELETE FROM files WHERE id=?", (fid,))
+    c.commit()
+
+
+def _replace_original(orig: str, made: str) -> str:
+    """The original goes to the Trash and `made` takes its place under the original name (with its own extension).
+    The index row of the original moves along, so tags and favourites stay."""
+    from .imagetools import to_trash
+    target = os.path.splitext(orig)[0] + os.path.splitext(made)[1].lower()
+    if target not in (orig, made) and os.path.exists(target):
+        target = made  # never overwrite a different file that happens to have that name: keep our free name
+    to_trash(orig)
+    os.replace(made, target)
+    return target
+
+
 @app.post("/api/bgremove/{fid}")
 def bg_remove(fid: int, d: dict = Body(default={})):
     """Make '<name> bez tła.png' next to the original (never touches the original) and index it right away."""
     from .bgremove import remove_background
-    from .common import kind_of, root_of
-    from .extract import quick_thumb, save_thumb
     r = db().execute("SELECT path, ext FROM files WHERE id=?", (fid,)).fetchone()
     if not r or (r["ext"] or "").lower() not in BG_EXTS or not os.path.exists(r["path"]):
         raise HTTPException(400, "usuwanie tła działa dla obrazów (PNG, JPG, WebP, HEIC, TIFF)")
     old = str(d.get("replace") or "")
     if old in _bg_made and os.path.exists(old):
-        os.remove(old)  # a retry with the other engine replaces our previous attempt, never anything else
+        os.remove(old)  # a retry with other settings replaces our previous attempt, never anything else
         _bg_made.discard(old)
+    holes = str(d.get("holes") or "auto")
     try:
-        res = remove_background(r["path"], engine=str(d.get("engine") or "auto"))
+        res = remove_background(r["path"], engine=str(d.get("engine") or "auto"),
+                                holes=holes if holes in ("auto", "all", "keep") else "auto")
     except Exception as e:  # noqa: BLE001
         raise HTTPException(500, f"nie udało się: {e}")
     path = res["path"]
     _bg_made.add(path)
-    st = os.stat(path)
-    c = connect()
-    c.execute("""INSERT INTO files(path,root,name,ext,kind,size,mtime,ctime,scan,stage) VALUES(?,?,?,?,?,?,?,?,0,0)
-                 ON CONFLICT(path) DO UPDATE SET size=excluded.size, mtime=excluded.mtime, stage=0""",
-              (path, root_of(path), os.path.basename(path), ".png", kind_of(path), st.st_size, st.st_mtime, st.st_mtime))
-    c.commit()
-    new_id = c.execute("SELECT id FROM files WHERE path=?", (path,)).fetchone()[0]
-    try:
-        save_thumb(quick_thumb(path, "image"), thumb_path(new_id))
-        c.execute("UPDATE files SET thumb=1 WHERE id=?", (new_id,))
-        c.commit()
-    except Exception:
-        pass
+    new_id = _index_file(path)
     return {**res, "id": new_id, "name": os.path.basename(path)}
+
+
+@app.post("/api/bgremove/{fid}/keep")
+def bg_keep(fid: int, d: dict = Body(...)):
+    """Accept a background-removal result as the new original: the original goes to the Trash and the PNG takes
+    its name (photo.jpg → photo.png)."""
+    c = db()
+    src = c.execute("SELECT path FROM files WHERE id=?", (fid,)).fetchone()
+    made = c.execute("SELECT id, path FROM files WHERE id=?", (int(d.get("result", 0)),)).fetchone()
+    if not src or not made or made["path"] not in _bg_made or not os.path.exists(made["path"]):
+        raise HTTPException(400, "nie znalazłem wyniku usuwania tła — spróbuj jeszcze raz")
+    if not os.path.exists(src["path"]):
+        raise HTTPException(400, "oryginału już nie ma")
+    try:
+        target = _replace_original(src["path"], made["path"])
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(500, f"nie udało się: {e}")
+    _bg_made.discard(made["path"])
+    _forget(made["id"])
+    _index_file(target, fid)
+    return {"ok": True, "id": fid, "path": target, "name": os.path.basename(target)}
+
+
+@app.post("/api/convert")
+def convert_images(d: dict = Body(...)):
+    """Compress / convert images. mode "copy" writes next to the original; "replace" puts the original in the
+    Trash and the result takes its name. A replacement that would come out bigger than the original is skipped."""
+    from .imagetools import EXT_FORMAT, FORMATS, IN_EXTS, convert, copy_name
+    fmt_in = str(d.get("format") or "same")
+    if fmt_in != "same" and fmt_in not in FORMATS:
+        raise HTTPException(400, "nieznany format")
+    mode = "replace" if d.get("mode") == "replace" else "copy"
+    opts = dict(quality=int(d.get("quality") or 82), max_side=int(d.get("max_side") or 0),
+                colors=bool(d.get("colors")), strip=d.get("strip", True) is not False)
+    ids = [int(x) for x in d.get("ids", [])][:1000]
+    c = db()
+    out = []
+    for fid in ids:
+        r = c.execute("SELECT path, name, ext, size FROM files WHERE id=?", (fid,)).fetchone()
+        if not r:
+            continue
+        row = {"id": fid, "name": r["name"], "before": r["size"]}
+        ext = (r["ext"] or "").lower()
+        fmt = fmt_in if fmt_in != "same" else EXT_FORMAT.get(ext, "png")
+        if ext not in IN_EXTS or not os.path.exists(r["path"]):
+            out.append({**row, "error": "to nie jest obsługiwany obraz albo dysk jest offline"})
+            continue
+        before = os.path.getsize(r["path"])
+        row["before"] = before
+        dest = copy_name(r["path"], fmt)
+        try:
+            convert(r["path"], dest, fmt, **opts)
+            after = os.path.getsize(dest)
+            if mode == "replace":
+                if EXT_FORMAT.get(ext) == fmt and after >= before and not opts["max_side"]:
+                    os.remove(dest)
+                    out.append({**row, "after": before, "skipped": "oryginał jest już mniejszy — zostawiony bez zmian"})
+                    continue
+                target = _replace_original(r["path"], dest)
+                _index_file(target, fid)
+                out.append({**row, "after": after, "path": target, "new_name": os.path.basename(target), "new_id": fid})
+            else:
+                new_id = _index_file(dest)
+                out.append({**row, "after": after, "path": dest, "new_name": os.path.basename(dest), "new_id": new_id})
+        except Exception as e:  # noqa: BLE001
+            if os.path.exists(dest) and mode == "replace" and os.path.exists(r["path"]):
+                os.remove(dest)
+            out.append({**row, "error": str(e)})
+    return {"items": out}
 
 
 @app.get("/api/transcript/{fid}")

@@ -217,6 +217,7 @@ async function openPreview(it) {
   renderPvColors(it);
   renderTranscript(it);
   $("#pvBg").hidden = !BG_OK.has((it.ext || "").toLowerCase()) || it.offline;
+  $("#pvConv").hidden = !CONV_OK.has((it.ext || "").toLowerCase()) || it.offline;
   if (!S.bgResult || S.bgResult.id !== it.id) $("#pvBgBar").hidden = true;
   const meta = [
     ["Typ", `${ICON[it.kind] || ""} ${(S.status?.labels || {})[it.kind] || it.kind} ${it.ext ? "(" + it.ext + ")" : ""}`],
@@ -419,26 +420,115 @@ $("#colors").addEventListener("click", e => { const b = e.target.closest("[data-
 $("#colors").addEventListener("change", e => { if (e.target.id === "colorPick") { S.color = ""; setColor(e.target.value); } });
 $("#colorClear").addEventListener("click", () => { S.color = ""; renderColors(); search(); });
 const BG_OK = new Set([".png", ".jpg", ".jpeg", ".webp", ".heic", ".heif", ".tif", ".tiff", ".bmp", ".gif"]);
-async function removeBg(srcId, engine = "auto", replace = "") {
+async function removeBg(srcId, engine = "auto", replace = "", holes = "auto") {
   const btn = $("#pvBg"); btn.disabled = true; btn.textContent = "✂️ Usuwam tło…";
   try {
-    const r = await api(`/api/bgremove/${srcId}`, { method: "POST", json: { engine, replace } });
-    S.bgResult = { id: r.id, src: srcId, path: r.path, engine: r.engine };
+    const r = await api(`/api/bgremove/${srcId}`, { method: "POST", json: { engine, replace, holes } });
+    S.bgResult = { id: r.id, src: srcId, path: r.path, engine: r.engine, holes: r.holes };
     const it = await api(`/api/file/${r.id}`);
     await openPreview({ ...it, tags: it.tags || [] });
-    const other = r.engine === "logo" ? ["vision", "AI (Apple Vision) — do zdjęć i produktów"] : ["logo", "Logo (tło jednolite, zachowuje białe elementy)"];
-    $("#pvBgBar").innerHTML = `✅ Utworzono <b>${esc(r.name)}</b> metodą <b>${r.engine === "logo" ? "Logo" : "AI (Apple Vision)"}</b>.
-      Oryginał bez zmian. <button data-eng="${other[0]}">Spróbuj: ${esc(other[1])}</button>`;
-    $("#pvBgBar").hidden = false;
+    renderBgBar(r);
     toast(`✂️ Gotowe: ${r.name}`, 3500);
   } catch (e) { toast("Nie udało się usunąć tła: " + e.message, 5000); }
   finally { btn.disabled = false; btn.textContent = "✂️ Usuń tło"; }
 }
+function refreshItem(it) {  // a file Lupa rewrote: show its new name, size and thumbnail in the grid
+  const i = S.items.findIndex(x => x.id === it.id); if (i < 0) return;
+  S.items[i] = { ...S.items[i], ...it, tags: it.tags || S.items[i].tags, mtime: Date.now() / 1000 };
+  rerenderCard(i);
+}
+function renderBgBar(r) {
+  const other = r.engine === "logo" ? ["vision", "AI (Apple Vision) — do zdjęć i produktów"] : ["logo", "Logo (jednolite tło)"];
+  const holes = r.engine !== "logo" ? "" : `<div class="bgopt">Środki liter (O, A, B…):
+      <button data-holes="auto" class="${r.holes !== "keep" ? "on" : ""}">przezroczyste</button>
+      <button data-holes="keep" class="${r.holes === "keep" ? "on" : ""}">białe</button></div>`;
+  $("#pvBgBar").innerHTML = `✅ Utworzono <b>${esc(r.name)}</b> metodą <b>${r.engine === "logo" ? "Logo" : "AI (Apple Vision)"}</b>. Oryginał jest bez zmian.
+    ${holes}
+    <div class="bgopt"><button data-keep class="primary">Zastąp oryginał tym plikiem</button><button data-eng="${other[0]}">Spróbuj: ${esc(other[1])}</button></div>`;
+  $("#pvBgBar").hidden = false;
+}
 $("#pvBg").addEventListener("click", () => { const it = pvItem(); if (it) removeBg(it.id); });
-$("#pvBgBar").addEventListener("click", e => {
-  const b = e.target.closest("[data-eng]"); if (!b || !S.bgResult) return;
-  removeBg(S.bgResult.src, b.dataset.eng, S.bgResult.path);
+$("#pvBgBar").addEventListener("click", async e => {
+  const R = S.bgResult; if (!R) return;
+  const b = e.target.closest("button"); if (!b) return;
+  if (b.dataset.eng) return removeBg(R.src, b.dataset.eng, R.path);
+  if (b.dataset.holes) return b.dataset.holes !== R.holes && removeBg(R.src, "logo", R.path, b.dataset.holes);
+  if (b.dataset.keep == null) return;
+  if (!confirm("Zastąpić oryginał?\n\nOryginał trafi do Kosza (możesz go przywrócić), a plik bez tła przejmie jego nazwę jako PNG.")) return;
+  try {
+    const r = await api(`/api/bgremove/${R.src}/keep`, { method: "POST", json: { result: R.id } });
+    S.bgResult = null; $("#pvBgBar").hidden = true;
+    const it = await api(`/api/file/${r.id}`);
+    refreshItem(it);
+    await openPreview({ ...it, tags: it.tags || [] });
+    toast(`✅ Oryginał zastąpiony: ${r.name} (stary plik jest w Koszu)`, 4500);
+  } catch (err) { toast("Nie udało się: " + err.message, 5000); }
 });
+// ------------------------------------------------------------------ compress / convert images
+const CONV_OK = new Set([...BG_OK, ".avif"]);
+const CV = { ids: [] };
+const cvOpt = store.get("convert", { format: "same", quality: 82, max_side: 0, colors: false, strip: true, mode: "copy" });
+function openConvert(ids) {
+  const items = ids.map(id => S.items.find(x => x.id === id) || (S.pv?.id === id ? S.pv : null)).filter(Boolean);
+  const ok = items.filter(x => CONV_OK.has((x.ext || "").toLowerCase()) && !x.offline);
+  if (!ok.length) return toast("Kompresja i konwersja działają dla obrazów (PNG, JPG, WebP, HEIC, TIFF, AVIF)", 4000);
+  CV.ids = ok.map(x => x.id);
+  const total = ok.reduce((a, x) => a + (x.size || 0), 0);
+  $("#cvTitle").textContent = ok.length === 1 ? `🗜 ${ok[0].name}` : `🗜 ${ok.length} obrazów`;
+  $("#cvInfo").textContent = `Teraz: ${fmtSize(total)}` + (ok.length < items.length ? ` · pominę ${items.length - ok.length} plików, które nie są obrazami` : "");
+  $("#cvFmt").value = cvOpt.format; $("#cvQ").value = cvOpt.quality; $("#cvMax").value = String(cvOpt.max_side);
+  $("#cvColors").checked = cvOpt.colors; $("#cvStrip").checked = cvOpt.strip;
+  $$("input[name=cvMode]").forEach(r => (r.checked = r.value === cvOpt.mode));
+  $("#cvForm").hidden = false; $("#cvRes").hidden = true; $("#cvGo").hidden = false; $("#cvGo").disabled = false;
+  cvSync(); $("#cvModal").hidden = false; $("#cvGo").focus();
+}
+function cvSync() {
+  const f = $("#cvFmt").value;
+  const exts = new Set(CV.ids.map(id => (S.items.find(x => x.id === id) || S.pv)?.ext?.toLowerCase()));
+  const png = f === "png" || (f === "same" && exts.has(".png"));
+  const lossy = ["jpg", "webp", "avif", "heic"].includes(f) || (f === "same" && [...exts].some(e => [".jpg", ".jpeg", ".webp", ".avif", ".heic", ".heif"].includes(e)));
+  $("#cvQRow").hidden = !lossy; $("#cvColorsRow").hidden = !png;
+  $("#cvQV").textContent = $("#cvQ").value;
+}
+["#cvFmt", "#cvQ"].forEach(sel => $(sel).addEventListener("input", cvSync));
+async function runConvert() {
+  Object.assign(cvOpt, { format: $("#cvFmt").value, quality: +$("#cvQ").value, max_side: +$("#cvMax").value,
+    colors: $("#cvColors").checked, strip: $("#cvStrip").checked, mode: $("input[name=cvMode]:checked").value });
+  store.set("convert", cvOpt);
+  if (cvOpt.mode === "replace" && !confirm(`Zastąpić ${CV.ids.length === 1 ? "oryginał" : CV.ids.length + " oryginałów"}?\n\nOryginały trafią do Kosza (możesz je przywrócić).`)) return;
+  $("#cvGo").disabled = true; $("#cvGo").textContent = "Pracuję…";
+  try {
+    const r = await api("/api/convert", { method: "POST", json: { ids: CV.ids, ...cvOpt } });
+    let before = 0, after = 0;
+    $("#cvRes").innerHTML = r.items.map(x => {
+      if (x.error) return `<div class="row"><span>${esc(x.name)}<small class="err">${esc(x.error)}</small></span><span></span></div>`;
+      before += x.before; after += x.after;
+      const pct = x.before ? Math.round((1 - x.after / x.before) * 100) : 0;
+      return `<div class="row"><span>${esc(x.new_name || x.name)}<small>${x.skipped ? esc(x.skipped) : esc(x.name) + " → " + esc(x.new_name)}</small></span>
+        <span>${fmtSize(x.before)} → ${fmtSize(x.after)} <b class="${pct > 0 ? "good" : ""}">${pct > 0 ? "−" + pct + "%" : pct < 0 ? "+" + -pct + "%" : ""}</b></span></div>`;
+    }).join("");
+    $("#cvForm").hidden = true; $("#cvRes").hidden = false; $("#cvGo").hidden = true;
+    $("#cvInfo").textContent = after ? `Razem: ${fmtSize(before)} → ${fmtSize(after)}` : "";
+    for (const x of r.items) {
+      if (x.error || x.skipped || cvOpt.mode !== "replace") continue;
+      try { refreshItem(await api(`/api/file/${x.new_id}`)); } catch {}
+    }
+    if (cvOpt.mode === "copy" && r.items.some(x => x.new_id)) toast("Kopie są obok oryginałów (odśwież wyniki, aby je zobaczyć)", 4000);
+  } catch (e) { toast("Nie udało się: " + e.message, 5000); }
+  finally { $("#cvGo").disabled = false; $("#cvGo").innerHTML = "Zapisz <kbd>↵</kbd>"; }
+}
+$("#cvGo").addEventListener("click", runConvert);
+$("#cvClose").addEventListener("click", () => ($("#cvModal").hidden = true));
+$("#cvModal").addEventListener("click", e => { if (e.target.id === "cvModal") $("#cvModal").hidden = true; });
+addEventListener("keydown", e => {
+  if ($("#cvModal").hidden) return;
+  e.stopImmediatePropagation();  // no grid shortcuts behind the dialog
+  if (e.key === "Escape") { e.preventDefault(); $("#cvModal").hidden = true; }
+  else if (e.key === "Enter" && !e.target.matches("select") && !$("#cvGo").hidden) { e.preventDefault(); runConvert(); }
+}, true);
+$("#pvConv").addEventListener("click", () => { const it = pvItem(); if (it) openConvert([it.id]); });
+$("#selConv").addEventListener("click", () => openConvert(selectedIds()));
+
 async function renderTranscript(it) {
   const box = $("#pvAsr"); box.hidden = true;
   if (it.kind !== "audio" && it.kind !== "video") return;

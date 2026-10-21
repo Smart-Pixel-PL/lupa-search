@@ -1,18 +1,20 @@
 """Background removal for logos and product images.
 
 Two engines:
-  • "logo"   — for graphics on a flat background (typical client logo on white): removes only the background
-               that touches the image border (flood fill with tolerance), so white parts *inside* the logo
-               (letters, stripes, outlines) stay. Edge pixels are un-blended from the background colour
-               (colour-to-alpha) so there is no white halo.
+  • "logo"   — for graphics on a flat background (typical client logo on white): removes the background that
+               touches the image border (flood fill with tolerance) and the inside of letters (O, A, B…), while
+               white artwork inside the logo (white text on a dark badge, stripes, outlines) stays. Edge pixels
+               are un-blended from the background colour (colour-to-alpha) so there is no white halo.
   • "vision" — Apple Vision subject lift (on-device AI) for photos, products, people.
 "auto" picks "logo" when the border is one flat colour, otherwise "vision".
 """
 import os
 import subprocess
+import time
 
 import numpy as np
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageFilter
+from scipy import ndimage
 
 from .common import DATA, PROJECT
 
@@ -35,22 +37,47 @@ def border_stats(rgb: np.ndarray):
     return bg, flat
 
 
-def remove_logo_bg(im: Image.Image, tol: float = 28.0) -> Image.Image:
+def _counter_holes(like: np.ndarray, enclosed: np.ndarray) -> np.ndarray:
+    """Enclosed background areas that are letter counters (the inside of O, A, B, D, P, R…), not white artwork.
+    A counter is wide compared to the thin stroke around it; white text or shapes on a dark badge are narrow
+    compared to the solid ink area that holds them, so those stay."""
+    holes, n = ndimage.label(enclosed)
+    if not n or n > 2000:  # nothing to do, or a noisy scan: leave it alone
+        return np.zeros_like(enclosed)
+    ink_mask = ~like
+    ink, n_ink = ndimage.label(ink_mask, structure=np.ones((3, 3)))
+    hole_r = ndimage.maximum(ndimage.distance_transform_edt(enclosed), holes, np.arange(1, n + 1))
+    ink_r = np.zeros(n_ink + 1)
+    ink_r[1:] = ndimage.maximum(ndimage.distance_transform_edt(ink_mask), ink, np.arange(1, n_ink + 1))
+    is_counter = np.zeros(n + 1, bool)
+    for k, sl in enumerate(ndimage.find_objects(holes), 1):
+        y0, x0 = max(sl[0].start - 1, 0), max(sl[1].start - 1, 0)
+        win = (slice(y0, sl[0].stop + 1), slice(x0, sl[1].stop + 1))
+        h = holes[win] == k
+        ids = ink[win][ndimage.binary_dilation(h) & ~h]
+        ids = ids[ids > 0]
+        if ids.size:  # the ink shape around this hole: is its stroke thin next to the hole?
+            is_counter[k] = hole_r[k - 1] >= 0.5 * ink_r[np.bincount(ids).argmax()]
+    return is_counter[holes]
+
+
+def remove_logo_bg(im: Image.Image, tol: float = 28.0, holes: str = "auto") -> Image.Image:
+    """holes: "auto" clears letter counters, "all" clears every enclosed background area, "keep" clears only
+    the background that touches the image border."""
     rgba = im.convert("RGBA")
     a0 = np.asarray(rgba).astype(np.float32)
     rgb, alpha_in = a0[..., :3], a0[..., 3]
     bg, _ = border_stats(rgb)
     dist = np.abs(rgb - bg).max(2)
-    # 1) background-like pixels connected to the border (flood fill on a mask)
-    like = Image.fromarray(((dist < tol) & (alpha_in > 0)).astype(np.uint8) * 255, "L")
     h, w = dist.shape
-    filled = like.copy()
-    seeds = [(x, 0) for x in range(0, w, 2)] + [(x, h - 1) for x in range(0, w, 2)] + \
-            [(0, y) for y in range(0, h, 2)] + [(w - 1, y) for y in range(0, h, 2)]
-    for s in seeds:
-        if filled.getpixel(s) == 255:
-            ImageDraw.floodfill(filled, s, 128)
-    region = np.asarray(filled) == 128  # background reachable from the edge
+    # 1) background-like pixels connected to the border, plus (optionally) enclosed ones such as the inside of an O
+    like = (dist < tol) & (alpha_in > 0)
+    lab, _ = ndimage.label(like)
+    edge_ids = np.unique(np.concatenate([lab[0], lab[-1], lab[:, 0], lab[:, -1]]))
+    region = np.isin(lab, edge_ids[edge_ids > 0])
+    if holes != "keep":
+        enclosed = like & ~region
+        region |= enclosed if holes == "all" else _counter_holes(like, enclosed)
     # 2) soft edge: pixels just inside the cut get alpha from how much they look like the background
     near = np.asarray(Image.fromarray(region.astype(np.uint8) * 255).filter(ImageFilter.MaxFilter(5))) > 0
     edge = near & ~region
@@ -87,7 +114,19 @@ def output_path(path: str) -> str:
     return cand
 
 
-def remove_background(path: str, engine: str = "auto", trim: bool = False) -> dict:
+def _save_atomic(write, dest: str) -> None:
+    """Write to a hidden temp file, then rename: folder watchers (e.g. auto-compressors on Downloads) never see
+    a half-written PNG."""
+    tmp = os.path.join(os.path.dirname(dest), f".lupa-{os.getpid()}-{time.time_ns()}.png")
+    try:
+        write(tmp)
+        os.replace(tmp, dest)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
+
+def remove_background(path: str, engine: str = "auto", trim: bool = False, holes: str = "auto") -> dict:
     """Create '<name> bez tła.png' next to the original. Never modifies the original."""
     im = Image.open(path)
     im.load()
@@ -96,14 +135,23 @@ def remove_background(path: str, engine: str = "auto", trim: bool = False) -> di
     if engine == "auto":
         engine = "logo" if flat >= 0.85 else "vision"
     dest = output_path(path)
-    if engine == "logo":
-        out = remove_logo_bg(im)
+
+    def logo(tmp):
+        out = remove_logo_bg(im, holes=holes)
         if trim and out.getbbox():
             out = out.crop(out.getchannel("A").getbbox())
-        out.save(dest, "PNG", optimize=True)
-    else:
-        if not remove_vision(path, dest):
-            out = remove_logo_bg(im)  # fallback
-            out.save(dest, "PNG", optimize=True)
-            engine = "logo"
-    return {"ok": True, "path": dest, "engine": engine, "bg": "#%02x%02x%02x" % tuple(int(x) for x in bg), "flat": round(flat, 2)}
+        out.save(tmp, "PNG", optimize=True)
+
+    def vision(tmp):
+        if not remove_vision(path, tmp):
+            raise RuntimeError("Apple Vision nie znalazł obiektu")
+
+    if engine == "vision":
+        try:
+            _save_atomic(vision, dest)
+        except RuntimeError:
+            engine = "logo"  # fallback
+    if engine == "logo":
+        _save_atomic(logo, dest)
+    return {"ok": True, "path": dest, "engine": engine, "holes": holes,
+            "bg": "#%02x%02x%02x" % tuple(int(x) for x in bg), "flat": round(flat, 2)}

@@ -268,7 +268,7 @@ def _thumb_one(r):
         return r["id"], -1
 
 
-def make_thumbs(con):
+def make_thumbs(con, emb=None):
     """Fast CPU-only pass so the grid shows real previews long before the (slow) GPU analysis finishes."""
     offline = [r for r in CFG["roots"] if not root_online(r)]
     excl = ",".join("?" * len(offline)) or "''"
@@ -279,6 +279,8 @@ def make_thumbs(con):
                            AND kind IN ('image','video','pdf') AND root NOT IN ({excl})
                            ORDER BY mtime DESC""", excl_roots).fetchall()
     total, done = len(rows), 0
+    if emb is not None and total > 300:
+        emb.unload()  # a long CPU-only pass: give the model's memory back meanwhile (reloads for the content pass)
     with ThreadPoolExecutor(6) as pool:
         for i in range(0, total, 96):
             if STOP:
@@ -359,6 +361,7 @@ def embed_content(con, emb, limit=None):
     futs = [pool.submit(_extract_one, r) for r in rows]
     while rows and not STOP:
         while on_battery() and not STOP:  # heavy GPU work only on mains power
+            emb.unload()  # don't sit on GBs of model memory while waiting for the charger
             status(con, phase="Wstrzymane — zasilanie z baterii (wznowi się po podłączeniu ładowarki)",
                    done=done, total=total, current="")
             time.sleep(60)
@@ -399,7 +402,9 @@ def embed_content(con, emb, limit=None):
                 vs = emb.images([x[2] for x in img_items])
                 vec_rows += [(f, V_VISUAL, p, v) for (f, p, _), v in zip(img_items, vs)]
             if txt_items:
-                vs = emb.documents([x[2] for x in txt_items], [x[3] for x in txt_items])
+                # long chunks (~1800 chars): 4 at a time needs ~1.3 GB less GPU memory than 16, same speed,
+                # bit-identical vectors (measured)
+                vs = emb.documents([x[2] for x in txt_items], [x[3] for x in txt_items], batch_size=4)
                 vec_rows += [(f, V_TEXT, p, v) for (f, p, _, _), v in zip(txt_items, vs)]
             if aud_items:
                 vs = emb.audio([x[1] for x in aud_items])
@@ -498,11 +503,13 @@ def main():
             network = []
         if not a.no_crawl:
             crawl(con, local, cleanup=False)  # seconds
+            if not STOP:
+                meta_set(con, "crawl_local_at", time.time())
+                con.commit()
         if a.crawl_only and not network:
             return
         from .embedder import Embedder
-        status(con, phase="Ładowanie modelu")
-        emb = Embedder()
+        emb = Embedder(lazy=True)  # loaded on first use: a run with nothing to analyse never touches the GPU
         migrate_nfc(con, emb)
         con.execute("""UPDATE files SET kind='design', stage=CASE WHEN stage=3 THEN 1 ELSE stage END
                        WHERE ext='.af' AND kind!='design'""")
@@ -522,30 +529,17 @@ def main():
         embed_names(con, emb)  # local files become searchable before the slow NAS scan
         if not a.no_crawl and network:
             # a NAS scan can take an hour of pure I/O — don't sit on GBs of model memory meanwhile
-            emb.free()
-            del emb
-            emb = None
-            import gc
-            gc.collect()
+            emb.unload()
             crawl(con, network)  # also drops files of roots removed from config
             if not STOP:
                 meta_set(con, "crawl_network_at", time.time())
                 con.commit()
-            status(con, phase="Ładowanie modelu")
-            emb = Embedder()
         elif not a.no_crawl:
             crawl(con, [])  # cleanup of roots removed from config
         if a.crawl_only:
             return
         embed_names(con, emb)
-        # thumbnails are CPU-only: give the model's memory back meanwhile
-        emb.free()
-        del emb
-        import gc
-        gc.collect()
-        make_thumbs(con)
-        status(con, phase="Ładowanie modelu")
-        emb = Embedder()
+        make_thumbs(con, emb)
         embed_content(con, emb, limit=a.limit)
         meta_set(con, "last_index", time.time())
     except Exception as e:

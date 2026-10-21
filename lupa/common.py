@@ -114,6 +114,8 @@ CREATE TABLE IF NOT EXISTS files(
 CREATE INDEX IF NOT EXISTS ix_files_stage ON files(stage);
 CREATE INDEX IF NOT EXISTS ix_files_mtime ON files(mtime);
 CREATE INDEX IF NOT EXISTS ix_files_kind ON files(kind);
+CREATE INDEX IF NOT EXISTS ix_files_root ON files(root);
+CREATE INDEX IF NOT EXISTS ix_files_ext ON files(ext);
 CREATE TABLE IF NOT EXISTS vectors(
   id INTEGER PRIMARY KEY AUTOINCREMENT, file_id INTEGER NOT NULL, vtype INTEGER NOT NULL,
   part INTEGER DEFAULT 0, vec BLOB NOT NULL);

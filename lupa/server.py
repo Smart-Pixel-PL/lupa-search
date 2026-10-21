@@ -29,6 +29,10 @@ from .colors import ColorIndex  # noqa: E402
 cindex = ColorIndex()
 _emb = None      # text-only on CPU: ~60 ms per query even while the indexer owns the GPU
 _emb_vis = None  # vision model on the GPU, loaded on first image search
+# The image-search model (~1.5 GB of GPU memory) is unloaded after 5 idle minutes and reloads by itself (~4 s).
+# The text model stays: it is small, needed for every search and live-indexed file, and a CPU model's memory
+# is not cleanly returned to macOS on unload (measured: reloading it left the process bigger than before).
+VISION_IDLE = 300
 live = None      # FSEvents watcher for local disks (lupa/live.py)
 _emb_lock = threading.Lock()
 _indexer: subprocess.Popen | None = None
@@ -83,10 +87,13 @@ def _bg_loop():
         try:
             c = db()
             vindex.refresh(c)
+            if _emb_vis is not None and _emb_vis.idle_unload(VISION_IDLE):
+                print("image-search model unloaded (idle)", flush=True)
             prev, _online = _online, {r: root_online(r) for r in CFG["roots"]}
             came_back = any(v and prev.get(r) is False for r, v in _online.items())
             every = CFG.get("reindex_every_hours", 3)
-            last = float(meta_get(c, "last_index", "0") or 0)
+            last = float(meta_get(c, "crawl_local_at") or meta_get(c, "last_index", "0") or 0)
+            crawl_due = bool(every) and time.time() - last > every * 3600
             _indexer_speed()
             _indexer_hang_check(c)
             _colors_job(c)
@@ -96,23 +103,33 @@ def _bg_loop():
                 threading.Thread(target=_cleanup_periodic, daemon=True).start()
             if came_back and not indexer_running():  # e.g. NAS mounted again
                 start_indexer()
-            elif not indexer_running() and time.time() - last_try > 600 and (
-                    _pending_work(c) or (every and time.time() - last > every * 3600)):
-                # resume unfinished work right away; otherwise a cheap refresh every `every` hours
-                # (the indexer itself decides whether the slow NAS scan is due — at most daily)
+            elif not indexer_running() and time.time() - last_try > 600 and (crawl_due or _queue_due(c, last_try)):
+                # resume unfinished work (on mains power: the analysis waits for the charger anyway); otherwise a
+                # refresh every `every` hours (the indexer itself decides whether the slow NAS scan is due).
+                # With live indexing on, changed files are already queued (and findable by name), so in between it
+                # skips the disk crawl (a 500k-file walk that rewrites every row) and only analyses what is waiting.
                 last_try = time.time()
-                start_indexer()
+                start_indexer(crawl=crawl_due or live is None)
             c.close()
         except Exception as e:  # noqa: BLE001
             print("bg:", e, file=sys.stderr)
         time.sleep(20)
 
 
+def _warm():
+    """Load the model and run one query, so the first real search doesn't pay for it (nor for reading the
+    memory-mapped vectors from disk)."""
+    try:
+        vindex.score(emb().query("rozgrzewka"))
+    except Exception as e:  # noqa: BLE001
+        print("warm-up:", e, file=sys.stderr)
+
+
 @app.on_event("startup")
 def _startup():
     vindex.refresh(db(), force=True)
     threading.Thread(target=_bg_loop, daemon=True).start()
-    threading.Thread(target=emb, daemon=True).start()  # warm the model
+    threading.Thread(target=_warm, daemon=True).start()
     if CFG.get("live_index", True):
         try:
             from .live import LiveIndexer
@@ -136,7 +153,7 @@ def indexer_running():
     return False
 
 
-def start_indexer(force_crawl=False):
+def start_indexer(force_crawl=False, crawl=True):
     global _indexer
     if indexer_running() or (DATA / "pause").exists():  # data/pause = hold all indexing (e.g. while re-granting access)
         return False
@@ -147,7 +164,8 @@ def start_indexer(force_crawl=False):
     # mains power → nice 10 (user apps still win, full speed otherwise); battery → background QoS.
     ac = _on_ac()
     prefix = ["nice", "-n", "10"] if ac or not CFG.get("fast_on_ac", True) else ["taskpolicy", "-b"]
-    cmd = prefix + [sys.executable, "-m", "lupa.indexer"] + (["--force-crawl"] if force_crawl else [])
+    cmd = prefix + [sys.executable, "-m", "lupa.indexer"] + (["--force-crawl"] if force_crawl else []) + \
+        ([] if crawl else ["--no-crawl"])
     (DATA / "indexer.mode").write_text("ac" if ac else "battery")
     env = {**os.environ, "OPENBLAS_NUM_THREADS": "1"}  # see indexer.py: avoids a fork() deadlock
     _indexer = subprocess.Popen(cmd, cwd=PROJECT, stdout=logf, stderr=subprocess.STDOUT, env=env,
@@ -223,10 +241,6 @@ def _colors_job(c):
     if time.time() - _colors_last < 300:
         return
     _colors_last = time.time()
-    try:
-        cindex.refresh(c)
-    except Exception:
-        pass
     if c.execute("SELECT 1 FROM files WHERE colors IS NULL AND thumb=1 AND kind IN "
                  "('image','design','raw','video','pdf') LIMIT 1").fetchone():
         prefix = ["nice", "-n", "10"] if _on_ac() else ["taskpolicy", "-b"]
@@ -287,17 +301,32 @@ def _asr_job(c):
         _start_job("lupa.transcribe", "transcribe.log")
 
 
+_cindex_at = 0.0
+
+
 def _color_ids(p, c):
     """File ids that contain a meaningful share of the requested colour, best first."""
-    cindex.refresh(c)
+    global _cindex_at
+    if time.time() - _cindex_at > 60:  # its freshness check scans the whole files table
+        cindex.refresh(c)
+        _cindex_at = time.time()
     ids, sc = cindex.score(p["color"])
     keep = sc >= float(p.get("color_min", 0.12))
     order = np.argsort(-sc[keep])
     return ids[keep][order], sc[keep][order]
 
 
-def _pending_work(c) -> bool:
-    return c.execute("SELECT 1 FROM files WHERE stage IN (0,1) LIMIT 1").fetchone() is not None
+def _pending_work(c, limit=1) -> int:
+    return c.execute("SELECT count(*) FROM (SELECT 1 FROM files WHERE stage IN (0,1) LIMIT ?)", (limit,)).fetchone()[0]
+
+
+def _queue_due(c, last_try) -> bool:
+    """Waiting files are analysed every 10 min; a handful of them (live indexing already made them findable by
+    name) every 30 min, so the GPU model isn't loaded six times an hour for two screenshots."""
+    n = _pending_work(c, 50)
+    if not n or (CFG.get("pause_on_battery", True) and not _on_ac()):
+        return False
+    return n >= 50 or live is None or time.time() - last_try >= 1800
 
 
 # ------------------------------------------------------------- helpers
@@ -778,24 +807,40 @@ def collection_delete(cid: int):
 
 
 # status / indexer ---------------------------------------------------------
+_counts = {"at": 0.0, "data": None, "lock": threading.Lock()}
+
+
+def _status_counts(c):
+    """Sidebar counts. The UI asks every 3 s while indexing; counting 500k rows that often kept a core busy
+    (and pulled the 1.5 GB database through the disk cache), so they are refreshed at most every 20 s."""
+    with _counts["lock"]:
+        if _counts["data"] is not None and time.time() - _counts["at"] < 20:
+            return _counts["data"]
+        one = lambda q, a=(): c.execute(q, a).fetchone()[0]  # noqa: E731
+        _counts["data"] = {
+            "kinds": {r[0]: r[1] for r in c.execute("SELECT kind, count(*) FROM files GROUP BY kind")},
+            "stages": {r[0]: r[1] for r in c.execute("SELECT stage, count(*) FROM files GROUP BY stage")},
+            "roots": {r: one("SELECT count(*) FROM files WHERE root=?", (r,)) for r in CFG["roots"]},
+            "formats": [one(f"SELECT count(*) FROM files WHERE ext IN ({','.join('?' * len(fm['exts']))})", fm["exts"])
+                        for fm in CFG.get("formats", DEFAULT_FORMATS)],
+            "places": [one("SELECT count(*) FROM files WHERE path >= ? AND path < ?", (pl["path"] + "/", pl["path"] + "0"))
+                       for pl in CFG.get("places", [])],
+        }
+        _counts["at"] = time.time()
+        return _counts["data"]
+
+
 @app.get("/api/status")
 def status():
     c = db()
-    kinds = {r[0]: r[1] for r in c.execute("SELECT kind, count(*) FROM files GROUP BY kind")}
-    stages = {r[0]: r[1] for r in c.execute("SELECT stage, count(*) FROM files GROUP BY stage")}
+    n = _status_counts(c)
     st = json.loads(meta_get(c, "status", "{}") or "{}")
     st["running"] = indexer_running()
     return {
-        "kinds": kinds, "labels": KIND_LABELS, "stages": stages, "vectors": len(vindex),
-        "roots": [{"path": r, "online": _online.get(r, root_online(r)),
-                   "count": c.execute("SELECT count(*) FROM files WHERE root=?", (r,)).fetchone()[0]}
-                  for r in CFG["roots"]],
-        "formats": [{**fm, "count": c.execute(
-            f"SELECT count(*) FROM files WHERE ext IN ({','.join('?' * len(fm['exts']))})", fm["exts"]).fetchone()[0]}
-            for fm in CFG.get("formats", DEFAULT_FORMATS)],
-        "places": [{**pl, "count": c.execute("SELECT count(*) FROM files WHERE path >= ? AND path < ?",
-                                              (pl["path"] + "/", pl["path"] + "0")).fetchone()[0]}
-                   for pl in CFG.get("places", [])],
+        "kinds": n["kinds"], "labels": KIND_LABELS, "stages": n["stages"], "vectors": len(vindex),
+        "roots": [{"path": r, "online": _online.get(r, root_online(r)), "count": n["roots"][r]} for r in CFG["roots"]],
+        "formats": [{**fm, "count": k} for fm, k in zip(CFG.get("formats", DEFAULT_FORMATS), n["formats"])],
+        "places": [{**pl, "count": k} for pl, k in zip(CFG.get("places", []), n["places"])],
         "indexer": st, "model_ready": _emb is not None, "live": live.stats if live else None,
         "last_index": float(meta_get(c, "last_index", "0") or 0),
     }

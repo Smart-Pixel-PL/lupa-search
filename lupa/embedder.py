@@ -1,6 +1,7 @@
 """Thin wrapper around EmbeddingGemma 2 (sentence-transformers) on Apple Silicon."""
 import os
 import threading
+import time
 import warnings
 
 import numpy as np
@@ -18,26 +19,52 @@ MODEL_ID = "google/embeddinggemma-2"
 
 
 class Embedder:
-    def __init__(self, audio=True, vision=True, device=None):
+    """The model is loaded on first use and can be unloaded (`unload()`, e.g. after idle time); it reloads by itself
+    on the next call, from the local copy in a second or two."""
+
+    def __init__(self, audio=True, vision=True, device=None, lazy=False):
+        import torch
+
+        self.cfg = {}
+        if not audio:
+            self.cfg["audio_config"] = None
+        if not vision:
+            self.cfg["vision_config"] = None
+        self.device = device or ("mps" if torch.backends.mps.is_available() else "cpu")
+        self.model = None
+        self.lock = threading.Lock()
+        self.used = time.time()
+        if not lazy:
+            with self.lock:
+                self._load()
+
+    def _load(self):
         import torch
         from sentence_transformers import SentenceTransformer
 
-        cfg = {}
-        if not audio:
-            cfg["audio_config"] = None
-        if not vision:
-            cfg["vision_config"] = None
-        dev = device or ("mps" if torch.backends.mps.is_available() else "cpu")
         # bf16 everywhere: on Apple Silicon CPU it is as fast as fp32 (~50 ms/query), half the RAM,
         # cosine 0.999 vs fp32. Never fp16 (activations overflow).
         dtype = torch.bfloat16
-        kw = dict(device=dev, config_kwargs=cfg or None, model_kwargs={"torch_dtype": dtype})
+        kw = dict(device=self.device, config_kwargs=self.cfg or None, model_kwargs={"torch_dtype": dtype})
         try:  # use the local copy without touching the network
             self.model = SentenceTransformer(MODEL_ID, local_files_only=True, **kw)
         except Exception:
             self.model = SentenceTransformer(MODEL_ID, **kw)
-        self.lock = threading.Lock()
         self.set_image_tokens(CFG.get("image_tokens", 140))
+
+    def unload(self):
+        """Give the model's RAM / GPU memory back; the next encode loads it again."""
+        with self.lock:
+            if self.model is None:
+                return
+            self.model = None
+        self.free()
+
+    def idle_unload(self, seconds: float) -> bool:
+        if seconds and self.model is not None and time.time() - self.used > seconds:
+            self.unload()
+            return True
+        return False
 
     def set_image_tokens(self, n: int):
         proc = getattr(self.model[0], "processor", None)
@@ -51,8 +78,12 @@ class Embedder:
         while True:
             try:
                 with self.lock:
+                    if self.model is None:
+                        self._load()
+                    self.used = time.time()
                     v = self.model.encode(items, truncate_dim=DIM, normalize_embeddings=True, batch_size=batch_size,
                                           convert_to_numpy=True, show_progress_bar=False, **kw)
+                self.used = time.time()
                 return v.astype(np.float16)
             except RuntimeError as e:
                 # GPU memory is shared with the whole Mac: back off instead of crashing the run

@@ -88,7 +88,7 @@ Internet był potrzebny tylko raz, do pobrania modelu.
 ┌──────────────▼───────────────┐
 │  Serwer (Python · FastAPI)   │  wyszukiwanie, miniatury, podgląd plików, tagi, kolekcje
 │  zapytania tekstowe → CPU    │  ~60 ms na zakodowanie zapytania
-│  wektory w pamięci (NumPy)   │
+│  wektory: plik mapowany      │  data/vectors-<dim>.npy (macOS może zwolnić te strony)
 └──────────────┬───────────────┘
                │ uruchamia co 3 h / przyciskiem / po podłączeniu NAS
 ┌──────────────▼───────────────┐
@@ -106,7 +106,9 @@ Internet był potrzebny tylko raz, do pobrania modelu.
 **Indeksowanie na żywo (v0.6.2).** `lupa/live.py` nasłuchuje zmian na dyskach lokalnych (FSEvents): nowy, zmieniony, przeniesiony lub usunięty plik trafia do wyszukiwarki po ok. 4 s (wektor nazwy + wyszukiwanie pełnotekstowe + miniatura od razu; analizę treści robi potem indeksator). Te same reguły pomijania co przy pełnym skanie.
 
 **Harmonogram indeksowania.** Po starcie indeksator wznawia przerwaną pracę (bez ponownego skanu). Dysk lokalny
-skanowany jest co `reindex_every_hours` (sekundy), dyski sieciowe najwyżej raz na `network_rescan_hours` (domyślnie 168 h, czyli raz w tygodniu;
+skanowany jest co `reindex_every_hours` (sekundy). Pomiędzy skanami, gdy działa indeksowanie na żywo, indeksator
+startuje bez skanu (`--no-crawl`) i tylko analizuje czekające pliki: co 10 min, gdy czeka ich 50 lub więcej,
+inaczej najwyżej co 30 min. Model ładuje się dopiero, gdy jest coś do analizy. Dyski sieciowe najwyżej raz na `network_rescan_hours` (domyślnie 168 h, czyli raz w tygodniu;
 przycisk „Indeksuj teraz” wymusza pełny skan). Indeksator działa w trybie macOS *background QoS* (`taskpolicy -b`:
 rdzenie energooszczędne i dławione I/O), więc nie spowalnia pracy na Macu, a na zasilaniu bateryjnym wstrzymuje analizę treści.
 
@@ -342,8 +344,8 @@ Zmiana `dim` wymaga przebudowy indeksu (usunięcie `data/`).
 | Proces | RAM | Uwagi |
 |---|---|---|
 | Lupa.app (okno) | ~30 MB | |
-| Serwer | ~0,7 GB | model zapytań na CPU (bfloat16) |
-| Indeksator | ~3,3 GB (pomiar przy indeksowaniu nazw; zwalnia model podczas skanu NAS) | działa tylko podczas indeksowania, z niskim priorytetem |
+| Serwer | ~0,7 GB (pomiar przy 840 tys. wektorów, 21.10.2026) | model zapytań na CPU (bfloat16); wektory w pliku mapowanym w pamięć (strony „czyste”, macOS może je zwolnić); model wyszukiwania obrazem (~1,5 GB GPU) zwalniany po 5 min bezczynności |
+| Indeksator | do ~4 GB GPU podczas analizy treści (wcześniej do 5,5 GB) | działa tylko podczas indeksowania, z niskim priorytetem; zwalnia model podczas skanu NAS, miniatur i czekania na ładowarkę |
 | Dysk | model 1,4 GB · środowisko 1,2 GB · indeks + miniatury ~1–2 GB (zależnie od liczby plików) | |
 
 ## 15. Znane ograniczenia i plany
